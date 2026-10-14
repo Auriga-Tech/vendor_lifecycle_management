@@ -4,6 +4,21 @@
 import frappe
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime, nowdate
 
+from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
+	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+	VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED,
+	VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED,
+	set_renewal_expired,
+)
+
+TEMPORARY_ENABLE_ONLY_STAGES = (
+	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+)
+
 CADENCE_DAYS = {
 	"Monthly": 30,
 	"Quarterly": 90,
@@ -35,11 +50,15 @@ def create_pending_satisfaction_surveys():
 	active_vendors = frappe.get_all(
 		"Supplier",
 		filters={"disabled": 0, "on_hold": 0, "disable_satisfaction_survey": 0},
-		fields=["name", "last_satisfaction_survey_date"],
+		fields=["name", "last_satisfaction_survey_date", "vendor_lifecycle_stage"],
 	)
 
 	created = []
 	for vendor in active_vendors:
+		# Temporarily enabled while deboarded / being re-boarded — not a
+		# vendor in normal business.
+		if vendor.vendor_lifecycle_stage in TEMPORARY_ENABLE_ONLY_STAGES:
+			continue
 		if vendor.last_satisfaction_survey_date and getdate(vendor.last_satisfaction_survey_date) >= getdate(cutoff):
 			continue
 
@@ -148,6 +167,7 @@ def auto_disable_expired_temporary_enables():
 	in the meantime is not disabled — only its flag is cleared."""
 	from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist.vendor_deboarding_checklist import (
 		get_temporary_enable_days,
+		temporary_enable_supplier_update,
 	)
 	from vendor_lifecycle.vendor_lifecycle.vendor_creation import VENDOR_LIFECYCLE_STAGE_REBOARDED
 
@@ -158,23 +178,21 @@ def auto_disable_expired_temporary_enables():
 		fields=["name", "supplier"],
 	)
 	suppliers = [row.supplier for row in expired if row.supplier]
-	reboarded = set()
+	stage_by_supplier = {}
 	if suppliers:
-		reboarded = set(frappe.get_all(
-			"Supplier",
-			filters={"name": ["in", suppliers], "vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_REBOARDED},
-			pluck="name",
+		stage_by_supplier = dict(frappe.get_all(
+			"Supplier", filters={"name": ["in", suppliers]}, fields=["name", "vendor_lifecycle_stage"], as_list=True,
 		))
 
 	for row in expired:
-		if row.supplier in reboarded:
-			frappe.db.set_value("Vendor Deboarding Checklist", row.name, "is_temporarily_enabled", 0)
-			continue
-		frappe.db.set_value("Supplier", row.supplier, {
-			"disabled": 1,
-			"vendor_lifecycle_status": "Disabled",
-		})
-		frappe.db.set_value("Vendor Deboarding Checklist", row.name, "is_temporarily_enabled", 0)
+		stage = stage_by_supplier.get(row.supplier)
+		if stage != VENDOR_LIFECYCLE_STAGE_REBOARDED:
+			frappe.db.set_value(
+				"Supplier", row.supplier, temporary_enable_supplier_update(row.supplier, enable=False, stage=stage)
+			)
+		frappe.db.set_value(
+			"Vendor Deboarding Checklist", row.name, {"is_temporarily_enabled": 0, "temporarily_enabled_on": None}
+		)
 
 	return [row.name for row in expired]
 
@@ -334,7 +352,7 @@ def send_compliance_audit_renewal_notices():
 
 		if days_remaining < 0:
 			if settings.get("disable_vendor_on_compliance_audit_expiry") and not vendor.disabled:
-				frappe.db.set_value("Supplier", vendor.name, "disabled", 1)
+				set_renewal_expired(vendor.name, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 				actions.append((vendor.name, "expired-disabled"))
 			continue
 
@@ -478,7 +496,7 @@ def send_signoff_renewal_notices():
 
 		if days_remaining < 0:
 			if settings.get("disable_vendor_on_contract_expiry") and not vendor.disabled:
-				frappe.db.set_value("Supplier", vendor.name, "disabled", 1)
+				set_renewal_expired(vendor.name, VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED)
 				actions.append((vendor.name, "expired-disabled"))
 			continue
 

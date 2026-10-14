@@ -5,6 +5,7 @@ import frappe
 from frappe.model.document import Document
 
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
+	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_ONBOARDED,
@@ -12,6 +13,8 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+	VENDOR_LIFECYCLE_STATUS_DISABLED,
 	phone_with_country_code,
 	resolve_vendor_lifecycle_company_name,
 	send_vendor_lifecycle_email,
@@ -342,6 +345,11 @@ class VendorReboardingRequest(Document):
 		# "Approve" action (which calls doc.submit() internally).
 		self.db_set("status", "Approved")
 		if self.vendor:
+			# Remembered so cancelling this request can put the vendor back.
+			previous_stage, previous_status = frappe.db.get_value(
+				"Supplier", self.vendor, ["vendor_lifecycle_stage", "vendor_lifecycle_status"]
+			)
+			self.db_set({"previous_vendor_stage": previous_stage, "previous_vendor_status": previous_status})
 			frappe.db.set_value("Supplier", self.vendor, "vendor_lifecycle_stage", VENDOR_LIFECYCLE_STAGE_REBOARDING)
 		self._notify_reboarding_email(DEFAULT_REBOARDING_REQUEST_APPROVED_EMAIL_TEMPLATE)
 		self._notify_creator_email(DEFAULT_REBOARDING_REQUEST_APPROVED_CREATOR_EMAIL_TEMPLATE)
@@ -350,6 +358,22 @@ class VendorReboardingRequest(Document):
 		# "Cancelled" is its own real status (the Workflow's own terminal
 		# state for this), same as Vendor KYC's own on_cancel().
 		self.db_set("status", "Cancelled")
+		self._restore_vendor_stage()
+
+	def _restore_vendor_stage(self):
+		# Back to where the vendor stood before approval (Deboarded / Disabled
+		# for a request approved before that was remembered). Only while the
+		# vendor is still in this re-boarding — Frappe already blocks the
+		# cancel once a re-boarding stage document is submitted against it.
+		if not self.vendor:
+			return
+		stage = frappe.db.get_value("Supplier", self.vendor, "vendor_lifecycle_stage")
+		if stage not in (VENDOR_LIFECYCLE_STAGE_REBOARDING, VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED):
+			return
+		frappe.db.set_value("Supplier", self.vendor, {
+			"vendor_lifecycle_stage": self.previous_vendor_stage or VENDOR_LIFECYCLE_STAGE_DEBOARDED,
+			"vendor_lifecycle_status": self.previous_vendor_status or VENDOR_LIFECYCLE_STATUS_DISABLED,
+		})
 
 	def on_update(self):
 		# "Approval Pending" and "Rejected" are both reached via a plain

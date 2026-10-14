@@ -11,7 +11,9 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+	VENDOR_LIFECYCLE_STATUS_ACTIVE,
 	get_kyc_vendor_contact,
+	resolve_settled_active_stage,
 	resolve_vendor_lifecycle_company_name,
 	send_vendor_lifecycle_email,
 	vendor_lifecycle_manager_emails,
@@ -114,6 +116,35 @@ class VendorDeboardingRequest(Document):
 			frappe.throw(
 				frappe._("This request has been stopped — see its Comments for why — re-open it before cancelling.")
 			)
+		self._block_cancel_while_checklist_exists()
+
+	def _block_cancel_while_checklist_exists(self):
+		# A submitted Checklist already blocks this (Frappe's linked-document
+		# check); a draft one would be left pointing at a cancelled request.
+		checklist = frappe.db.get_value(
+			"Vendor Deboarding Checklist", {"deboarding_request": self.name, "docstatus": ["!=", 2]}, "name"
+		)
+		if checklist:
+			frappe.throw(
+				frappe._("Cancel or delete Vendor Deboarding Checklist {0} first.").format(
+					frappe.utils.get_link_to_form("Vendor Deboarding Checklist", checklist)
+				)
+			)
+
+	def on_cancel(self):
+		# Deboarding never got as far as a Checklist — the vendor goes back
+		# to how it was settled before this request, unfrozen if this
+		# request's own Freeze button froze it.
+		self.db_set("status", "Cancelled")
+		if not self.vendor:
+			return
+		update = {
+			"vendor_lifecycle_stage": resolve_settled_active_stage(self.vendor),
+			"vendor_lifecycle_status": VENDOR_LIFECYCLE_STATUS_ACTIVE,
+		}
+		if self.supplier_frozen_by_request:
+			update["is_frozen"] = 0
+		frappe.db.set_value("Supplier", self.vendor, update)
 
 	def after_insert(self):
 		self._notify_created()
@@ -176,6 +207,7 @@ class VendorDeboardingRequest(Document):
 		is_frozen = frappe.db.get_value("Supplier", self.vendor, "is_frozen")
 		new_value = 0 if is_frozen else 1
 		frappe.db.set_value("Supplier", self.vendor, "is_frozen", new_value)
+		self.db_set("supplier_frozen_by_request", new_value)
 		return {"is_frozen": new_value}
 
 	@frappe.whitelist()

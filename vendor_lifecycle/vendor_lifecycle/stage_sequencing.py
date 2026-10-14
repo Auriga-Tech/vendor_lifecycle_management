@@ -288,6 +288,12 @@ def require_no_active_document_for_kyc(doc):
 		)
 
 
+RENEWABLE_EXPIRED_STATUS = {
+	"Vendor Compliance Audit": "Compliance Audit Expired",
+	"Vendor Sign Off": "Contract Expired",
+}
+
+
 def require_active_supplier_for_renewal(doc):
 	"""Call from before_insert() AND before_submit() on Vendor Compliance
 	Audit, Vendor Sign Off, and Vendor Sampling Evaluation, only when
@@ -306,7 +312,13 @@ def require_active_supplier_for_renewal(doc):
 	completely unaffected."""
 	if not doc.is_renewal or not doc.vendor:
 		return
-	disabled, is_frozen = frappe.db.get_value("Supplier", doc.vendor, ["disabled", "is_frozen"])
+	disabled, is_frozen, status = frappe.db.get_value(
+		"Supplier", doc.vendor, ["disabled", "is_frozen", "vendor_lifecycle_status"]
+	)
+	# A vendor disabled only because this very check ran out may still be
+	# renewed — that Renewal is the way back (see clear_renewal_expired).
+	if disabled and status == RENEWABLE_EXPIRED_STATUS.get(doc.doctype):
+		disabled = 0
 	if disabled:
 		frappe.throw(
 			frappe._("{0} is currently disabled — Renewal/Ad-hoc checks only apply to an active vendor.").format(

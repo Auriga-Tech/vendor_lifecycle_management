@@ -14,6 +14,8 @@ from vendor_lifecycle.vendor_lifecycle.stage_sequencing import (
 	require_no_active_document_for_kyc,
 )
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
+	refresh_status_after_pass_cancelled,
+	restore_status_after_draft_deleted,
 	VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STATUS_BACKGROUND_CHECK_FAILED,
@@ -91,12 +93,17 @@ class VendorBackgroundCheck(Document):
 		sync_onboarding_request_field(self)
 		require_kyc_unless_reboarding(self)
 		enforce_sequential_creation(self)
-		mark_vendor_status_in_progress(
-			self,
+		mark_vendor_status_in_progress(self, self._in_progress_status())
+
+	def _in_progress_status(self):
+		return (
 			VENDOR_LIFECYCLE_STATUS_REBACKGROUND_CHECK_IN_PROGRESS
 			if self.is_reboarding
-			else VENDOR_LIFECYCLE_STATUS_BACKGROUND_CHECK_IN_PROGRESS,
+			else VENDOR_LIFECYCLE_STATUS_BACKGROUND_CHECK_IN_PROGRESS
 		)
+
+	def on_trash(self):
+		restore_status_after_draft_deleted(self, self._in_progress_status())
 
 	def _clear_unused_auditor_field(self):
 		# Only one of internal Conducted By / external agency ever applies at
@@ -453,6 +460,8 @@ class VendorBackgroundCheck(Document):
 		# pattern ERPNext itself uses (e.g. Purchase Order.on_cancel).
 		self.ignore_linked_doctypes = ("Vendor Background Check Reference",)
 		self._revert_disable_if_this_was_the_failed_one()
+		if self.overall_status == "Passed":
+			refresh_status_after_pass_cancelled(self)
 
 	def _revert_disable_if_this_was_the_failed_one(self):
 		# Cancelling this Background Check retracts its own consequences —

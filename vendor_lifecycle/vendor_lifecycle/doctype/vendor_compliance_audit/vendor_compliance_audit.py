@@ -17,6 +17,11 @@ from vendor_lifecycle.vendor_lifecycle.stage_sequencing import (
 	require_no_active_document_for_kyc,
 )
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
+	VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED,
+	clear_renewal_expired,
+	set_renewal_expired,
+	refresh_status_after_pass_cancelled,
+	restore_status_after_draft_deleted,
 	VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STATUS_AUDIT_VERIFIED,
@@ -139,12 +144,17 @@ class VendorComplianceAudit(Document):
 		# things a Renewal is allowed to affect (disabled, valid_until).
 		if self.is_renewal:
 			return
-		mark_vendor_status_in_progress(
-			self,
+		mark_vendor_status_in_progress(self, self._in_progress_status())
+
+	def _in_progress_status(self):
+		return (
 			VENDOR_LIFECYCLE_STATUS_RECOMPLIANCE_AUDIT_IN_PROGRESS
 			if self.is_reboarding
-			else VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_IN_PROGRESS,
+			else VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_IN_PROGRESS
 		)
+
+	def on_trash(self):
+		restore_status_after_draft_deleted(self, self._in_progress_status())
 
 	def _resolve_valid_until(self):
 		# valid_until is a plain, ordinary field - the system never writes
@@ -671,12 +681,11 @@ class VendorComplianceAudit(Document):
 		self._notify_outcome(DEFAULT_VENDOR_LIFECYCLE_PASSED_EMAIL_TEMPLATE)
 
 	def _handle_renewal_result(self):
-		# A Renewal never touches vendor_lifecycle_status/stage — by
-		# explicit product decision, it's purely: keep the Supplier's own
-		# compliance_audit_valid_until in sync, and — only if the relevant
-		# Settings checkbox says so — disable the vendor on a Failed
-		# result. A Passed Renewal always clears that same disable, if it
-		# was this specific reason keeping the vendor disabled.
+		# A Renewal never touches vendor_lifecycle_stage — it keeps the
+		# Supplier's own compliance_audit_valid_until in sync and — only if
+		# the relevant Settings checkbox says so — disables the vendor on a
+		# Failed result with status "Compliance Audit Expired". A Passed
+		# Renewal clears that same disable (clear_renewal_expired).
 		if not self.vendor:
 			return
 		settings = frappe.get_single("Vendor Lifecycle Settings")
@@ -684,15 +693,12 @@ class VendorComplianceAudit(Document):
 			frappe.db.set_value(
 				"Supplier", self.vendor, "compliance_audit_valid_until", self._resolve_valid_until()
 			)
-			if settings.get("disable_vendor_on_compliance_audit_expiry"):
-				reason = get_disable_reason_for_supplier(self.vendor)
-				if not reason or reason == {"doctype": self.doctype, "name": self.name}:
-					frappe.db.set_value("Supplier", self.vendor, "disabled", 0)
+			clear_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 			self._notify_outcome(DEFAULT_VENDOR_LIFECYCLE_PASSED_EMAIL_TEMPLATE)
 			return
 
 		if self.outcome == "Failed" and settings.get("disable_vendor_on_compliance_audit_expiry"):
-			frappe.db.set_value("Supplier", self.vendor, "disabled", 1)
+			set_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 		self._notify_outcome(DEFAULT_VENDOR_LIFECYCLE_FAILED_EMAIL_TEMPLATE)
 
 	def _notify_outcome(self, template_name):
@@ -786,6 +792,8 @@ class VendorComplianceAudit(Document):
 			self._revert_renewal_result(previous_valid_until)
 			return
 		self._revert_disable_if_this_was_the_failed_one()
+		if self.outcome == "Passed":
+			refresh_status_after_pass_cancelled(self)
 
 	def _revert_compliance_audit_valid_until_if_cancelled_pass(self):
 		if self.outcome != "Passed" or not self.vendor:
@@ -830,13 +838,10 @@ class VendorComplianceAudit(Document):
 					frappe.utils.today()
 				)
 				if expired:
-					frappe.db.set_value("Supplier", self.vendor, "disabled", 1)
+					set_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 			return
 
 		if self.outcome == "Failed" and disable_on_expiry:
-			reason = get_disable_reason_for_supplier(self.vendor)
-			if reason and reason != {"doctype": self.doctype, "name": self.name}:
-				return
 			# A Failed Renewal never sets valid_until (only a Passed one
 			# does — see above), so previous_valid_until is always None
 			# here; the Supplier's own current compliance_audit_valid_until
@@ -847,7 +852,7 @@ class VendorComplianceAudit(Document):
 				frappe.utils.today()
 			)
 			if not expired:
-				frappe.db.set_value("Supplier", self.vendor, "disabled", 0)
+				clear_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 
 	def _revert_disable_if_this_was_the_failed_one(self):
 		# Same treatment as Vendor Background Check's own

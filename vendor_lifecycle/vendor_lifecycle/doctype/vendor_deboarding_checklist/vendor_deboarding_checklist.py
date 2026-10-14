@@ -11,13 +11,14 @@ from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_request.vendor_
 )
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
+	VENDOR_LIFECYCLE_STAGE_DEBOARDING,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+	get_disable_reason_for_supplier,
 	get_kyc_vendor_contact,
 	get_supplier_contact_email,
 	require_vendor_lifecycle_email_account,
-	resolve_settled_active_stage,
 	send_vendor_lifecycle_email,
 	vendor_lifecycle_cc_list,
 	vendor_lifecycle_doctype_email_enabled,
@@ -553,6 +554,20 @@ class VendorDeboardingChecklist(Document):
 
 		frappe.db.set_value("Vendor Deboarding Request", self.deboarding_request, "status", "Vendor Disabled")
 
+	def before_cancel(self):
+		self._block_cancel_once_vendor_moved_on()
+
+	def _block_cancel_once_vendor_moved_on(self):
+		# Cancelling puts the vendor back into "Deboarding in Process" —
+		# only sensible while this deboarding is still where the vendor is.
+		stage = frappe.db.get_value("Supplier", self.supplier, "vendor_lifecycle_stage")
+		if self.supplier and stage not in (VENDOR_LIFECYCLE_STAGE_DEBOARDED, VENDOR_LIFECYCLE_STAGE_DEBOARDING_FAILED):
+			frappe.throw(
+				frappe._("{0} has moved on to {1} — this Checklist can no longer be cancelled.").format(
+					self.supplier, frappe.bold(stage)
+				)
+			)
+
 	def on_cancel(self):
 		block_if_stopped(self)
 		# Undoes on_submit()'s side effects — every other submittable
@@ -570,29 +585,27 @@ class VendorDeboardingChecklist(Document):
 	def _revert_disable_if_this_was_the_one(self):
 		if not self.supplier:
 			return
-		# Only one Checklist is ever active per vendor at a time (see the
-		# duplicate-checklist guard elsewhere), but check for another
-		# still-submitted one first anyway, same defensive pattern the
-		# onboarding stage doctypes use for their own equivalent checks.
+		# Only one Checklist is ever active per Deboarding Request, but check
+		# for another still-submitted one of the SAME request anyway — a
+		# vendor deboarded, re-boarded and deboarded again also has the
+		# first round's Checklist still submitted, which mustn't count.
 		other_submitted_exists = frappe.db.exists(
 			"Vendor Deboarding Checklist",
-			{"supplier": self.supplier, "docstatus": 1, "name": ["!=", self.name]},
+			{"deboarding_request": self.deboarding_request, "docstatus": 1, "name": ["!=", self.name]},
 		)
 		if other_submitted_exists:
 			return
-		if self.mark_as_failed:
-			# Never disabled the Supplier in the first place — only the
-			# Stage/Status markers this submission itself set need undoing.
-			frappe.db.set_value("Supplier", self.supplier, {
-				"vendor_lifecycle_status": "Active",
-				"vendor_lifecycle_stage": resolve_settled_active_stage(self.supplier),
-			})
-		else:
-			frappe.db.set_value("Supplier", self.supplier, {
-				"disabled": 0,
-				"vendor_lifecycle_status": "Active",
-				"vendor_lifecycle_stage": resolve_settled_active_stage(self.supplier),
-			})
+		# Back to "deboarding under way": the Deboarding Request goes back to
+		# Approved below, so a new Checklist can be made for it.
+		update = {
+			"vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_DEBOARDING,
+			"vendor_lifecycle_status": "Deboarding Initiated",
+		}
+		# A failed Checklist never disabled the Supplier; a passed one did —
+		# lift that unless something else is also disabling it.
+		if not self.mark_as_failed and not get_disable_reason_for_supplier(self.supplier):
+			update["disabled"] = 0
+		frappe.db.set_value("Supplier", self.supplier, update)
 		if self.deboarding_request:
 			frappe.db.set_value("Vendor Deboarding Request", self.deboarding_request, "status", "Approved")
 
@@ -622,7 +635,12 @@ class VendorDeboardingChecklist(Document):
 
 	@frappe.whitelist()
 	def get_temporary_enable_button_info(self):
-		if self.docstatus != 1 or self.mark_as_failed or not self._can_temporarily_enable():
+		if (
+			self.docstatus != 1
+			or self.mark_as_failed
+			or not self._can_temporarily_enable()
+			or get_supplier_temporary_enable_checklist_name(self.supplier) != self.name
+		):
 			return {"show": False}
 		days = get_temporary_enable_days()
 		info = {
@@ -671,12 +689,15 @@ class VendorDeboardingChecklist(Document):
 			frappe.throw(
 				frappe._("Only a Vendor Lifecycle Manager or System Manager can do this."), frappe.PermissionError
 			)
+		if get_supplier_temporary_enable_checklist_name(self.supplier) != self.name:
+			frappe.throw(
+				frappe._(
+					"Only the vendor's latest Checklist can do this, while it is Deboarded or in re-boarding."
+				)
+			)
 
 		if self.is_temporarily_enabled:
-			frappe.db.set_value("Supplier", self.supplier, {
-				"disabled": 1,
-				"vendor_lifecycle_status": "Disabled",
-			})
+			frappe.db.set_value("Supplier", self.supplier, temporary_enable_supplier_update(self.supplier, enable=False))
 			self.db_set("is_temporarily_enabled", 0)
 			self.db_set("temporarily_enabled_on", None)
 			self.add_comment(
@@ -685,10 +706,7 @@ class VendorDeboardingChecklist(Document):
 			return {"is_temporarily_enabled": False}
 
 		now = now_datetime()
-		frappe.db.set_value("Supplier", self.supplier, {
-			"disabled": 0,
-			"vendor_lifecycle_status": TEMPORARILY_ENABLED_STATUS,
-		})
+		frappe.db.set_value("Supplier", self.supplier, temporary_enable_supplier_update(self.supplier, enable=True))
 		self.db_set("is_temporarily_enabled", 1)
 		self.db_set("temporarily_enabled_on", now)
 		expires_on = add_to_date(now, days=get_temporary_enable_days())
@@ -705,20 +723,36 @@ class VendorDeboardingChecklist(Document):
 		}
 
 
-def get_supplier_temporary_enable_checklist(supplier):
+def get_supplier_temporary_enable_checklist_name(supplier):
 	# The Checklist that holds this Supplier's temporary-enable state: its
 	# latest submitted, not-failed one. None if the Supplier isn't in one of
-	# SUPPLIER_TEMPORARY_ENABLE_STAGES or has no such Checklist.
+	# SUPPLIER_TEMPORARY_ENABLE_STAGES or has no such Checklist. Both the
+	# Checklist and the Supplier button only act through this one.
 	stage = frappe.db.get_value("Supplier", supplier, "vendor_lifecycle_stage")
 	if stage not in SUPPLIER_TEMPORARY_ENABLE_STAGES:
 		return None
-	name = frappe.db.get_value(
+	return frappe.db.get_value(
 		"Vendor Deboarding Checklist",
 		{"supplier": supplier, "docstatus": 1, "mark_as_failed": 0},
 		"name",
 		order_by="creation desc",
 	)
+
+
+def get_supplier_temporary_enable_checklist(supplier):
+	name = get_supplier_temporary_enable_checklist_name(supplier)
 	return frappe.get_doc("Vendor Deboarding Checklist", name) if name else None
+
+
+def temporary_enable_supplier_update(supplier, enable, stage=None):
+	# Enabled/Disabled always follows the toggle; the status only while
+	# Deboarded — in re-boarding it shows the re-boarding progress instead.
+	update = {"disabled": 0 if enable else 1}
+	if stage is None:
+		stage = frappe.db.get_value("Supplier", supplier, "vendor_lifecycle_stage")
+	if stage not in (VENDOR_LIFECYCLE_STAGE_REBOARDING, VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED):
+		update["vendor_lifecycle_status"] = TEMPORARILY_ENABLED_STATUS if enable else "Disabled"
+	return update
 
 
 def set_supplier_temporary_enable_onload(doc, method=None):

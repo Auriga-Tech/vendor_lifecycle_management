@@ -41,8 +41,17 @@ VENDOR_LIFECYCLE_STATUS_RESAMPLING_REJECTED = "Re-Sampling Rejected"
 
 VENDOR_LIFECYCLE_STATUS_SIGN_OFF_IN_PROGRESS = "Sign Off In Progress"
 VENDOR_LIFECYCLE_STATUS_SIGN_OFF_FAILED = "Sign Off Failed"
+VENDOR_LIFECYCLE_STATUS_RESIGN_OFF_IN_PROGRESS = "Re-Sign Off In Progress"
 VENDOR_LIFECYCLE_STATUS_RESIGN_OFF_FAILED = "Re-Sign Off Failed"
 VENDOR_LIFECYCLE_STATUS_ACTIVE = "Active"
+
+# Set when an active vendor is disabled because its Compliance Audit /
+# contract ran out (expiry jobs in tasks.py, or a Failed Renewal of that
+# type). A Renewal of the matching type is still allowed on such a vendor
+# (see stage_sequencing.require_active_supplier_for_renewal) and puts
+# "Active" back when it passes.
+VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED = "Compliance Audit Expired"
+VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED = "Contract Expired"
 
 # Set only by Vendor Deboarding Checklist.on_submit() (and restored by
 # tasks.auto_disable_expired_temporary_enables() once a temporary enable
@@ -77,6 +86,9 @@ SIBLING_DOCTYPES = [
 ]
 
 
+KYC_DEAD_STATES = ("Rejected", "Trashed")
+
+
 def is_kyc_rejected(kyc_name):
 	"""True if this Vendor KYC is Rejected — via our own manual Reject
 	button's status field, or via an active Frappe Workflow's own state
@@ -87,8 +99,9 @@ def is_kyc_rejected(kyc_name):
 	whatever field and labels that workflow itself uses. Assumes a
 	workflow's rejection state is literally named "Rejected", matching
 	this app's own convention — a workflow using a different label for it
-	won't be recognized here."""
-	if frappe.db.get_value("Vendor KYC", kyc_name, "status") == "Rejected":
+	won't be recognized here. A Trashed KYC counts the same way — it's an
+	abandoned attempt too."""
+	if frappe.db.get_value("Vendor KYC", kyc_name, "status") in KYC_DEAD_STATES:
 		return True
 
 	workflow_state_field = frappe.db.get_value(
@@ -97,7 +110,7 @@ def is_kyc_rejected(kyc_name):
 	if not workflow_state_field:
 		return False
 
-	return frappe.db.get_value("Vendor KYC", kyc_name, workflow_state_field) == "Rejected"
+	return frappe.db.get_value("Vendor KYC", kyc_name, workflow_state_field) in KYC_DEAD_STATES
 
 
 def sync_vendor_field(doc):
@@ -509,8 +522,11 @@ DISABLE_REASON_SOURCES = [
 	# force_overridden: 0 — an overridden result is no longer a live reason
 	# the Supplier is (or should stay) disabled; see force_override() on
 	# each of these three doctypes.
-	("Vendor Sampling Evaluation", {"evaluation_outcome": "Rejected", "force_overridden": 0}),
-	("Vendor Compliance Audit", {"outcome": "Failed", "force_overridden": 0}),
+	# is_renewal: 0 — a Renewal / Ad-hoc result is never a pipeline
+	# failure; a Failed Renewal's own disable is tracked by the "... Expired"
+	# statuses instead.
+	("Vendor Sampling Evaluation", {"evaluation_outcome": "Rejected", "force_overridden": 0, "is_renewal": 0}),
+	("Vendor Compliance Audit", {"outcome": "Failed", "force_overridden": 0, "is_renewal": 0}),
 	("Vendor Background Check", {"overall_status": "Failed", "force_overridden": 0}),
 ]
 
@@ -531,7 +547,7 @@ def get_disable_reason_for_supplier(supplier):
 	# already-retried failure forever.
 	latest_sign_off = frappe.db.get_value(
 		"Vendor Sign Off",
-		{"vendor": supplier, "docstatus": 1},
+		{"vendor": supplier, "docstatus": 1, "is_renewal": 0},
 		["name", "sign_off_failed"],
 		as_dict=True,
 		order_by="creation desc",
@@ -553,7 +569,7 @@ def get_disable_reason_for_supplier(supplier):
 	return None
 
 
-def get_failed_stage_reason(*, kyc=None, reboarding_request=None):
+def get_failed_stage_reason(*, kyc=None, reboarding_request=None, include_sign_off=True):
 	"""Same shape and same DISABLE_REASON_SOURCES filters as
 	get_disable_reason_for_supplier above, but scoped to one specific
 	pipeline run (kyc, for onboarding; reboarding_request, for
@@ -571,7 +587,7 @@ def get_failed_stage_reason(*, kyc=None, reboarding_request=None):
 		# for the same vendor.
 		scope = {"kyc": kyc, "is_reboarding": 0}
 
-	latest_sign_off = frappe.db.get_value(
+	latest_sign_off = include_sign_off and frappe.db.get_value(
 		"Vendor Sign Off", {**scope, "docstatus": 1}, ["name", "sign_off_failed"],
 		as_dict=True, order_by="creation desc",
 	)
@@ -620,6 +636,94 @@ def resolve_current_stage_status(*, kyc=None, reboarding_request=None):
 	if frappe.db.exists("Vendor Background Check", {**scope, "docstatus": 1, "overall_status": "Passed"}):
 		return background
 	return baseline
+
+
+FAILED_STATUS_BY_DOCTYPE = {
+	# doctype: (onboarding status, re-boarding status)
+	"Vendor Background Check": (
+		VENDOR_LIFECYCLE_STATUS_BACKGROUND_CHECK_FAILED, VENDOR_LIFECYCLE_STATUS_REBACKGROUND_CHECK_FAILED,
+	),
+	"Vendor Compliance Audit": (
+		VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_FAILED, VENDOR_LIFECYCLE_STATUS_RECOMPLIANCE_AUDIT_FAILED,
+	),
+	"Vendor Sampling Evaluation": (
+		VENDOR_LIFECYCLE_STATUS_SAMPLING_REJECTED, VENDOR_LIFECYCLE_STATUS_RESAMPLING_REJECTED,
+	),
+	"Vendor Sign Off": (VENDOR_LIFECYCLE_STATUS_SIGN_OFF_FAILED, VENDOR_LIFECYCLE_STATUS_RESIGN_OFF_FAILED),
+}
+
+
+def resolve_run_status(*, kyc=None, reboarding_request=None):
+	"""The vendor_lifecycle_status one pipeline run should show right now:
+	the Failed/Rejected status of a failure still standing in it, else the
+	most advanced passed stage (resolve_current_stage_status)."""
+	reason = get_failed_stage_reason(kyc=kyc, reboarding_request=reboarding_request)
+	if reason:
+		return FAILED_STATUS_BY_DOCTYPE[reason["doctype"]][1 if reboarding_request else 0]
+	return resolve_current_stage_status(kyc=kyc, reboarding_request=reboarding_request)
+
+
+def _run_scope(doc):
+	if doc.get("is_reboarding"):
+		return {"reboarding_request": doc.get("reboarding_request")}
+	return {"kyc": doc.get("kyc")}
+
+
+PASSED_STATUS_BY_DOCTYPE = {
+	"Vendor Background Check": (
+		VENDOR_LIFECYCLE_STATUS_BACKGROUND_VERIFIED, VENDOR_LIFECYCLE_STATUS_REBACKGROUND_CHECK_APPROVED,
+	),
+	"Vendor Compliance Audit": (
+		VENDOR_LIFECYCLE_STATUS_AUDIT_VERIFIED, VENDOR_LIFECYCLE_STATUS_RECOMPLIANCE_AUDIT_APPROVED,
+	),
+	"Vendor Sampling Evaluation": (
+		VENDOR_LIFECYCLE_STATUS_SAMPLING_APPROVED, VENDOR_LIFECYCLE_STATUS_RESAMPLING_APPROVED,
+	),
+}
+
+
+def refresh_status_after_pass_cancelled(doc):
+	"""Call from on_cancel() of a passed Background Check / Compliance Audit /
+	Sampling Evaluation (onboarding or re-boarding) — its "Verified" /
+	"Approved" status no longer holds. Left alone if a later stage has
+	already moved the status on (e.g. its draft's "... In Progress")."""
+	if not doc.vendor or not any(_run_scope(doc).values()):
+		return
+	passed_status = PASSED_STATUS_BY_DOCTYPE[doc.doctype][1 if doc.get("is_reboarding") else 0]
+	if frappe.db.get_value("Supplier", doc.vendor, "vendor_lifecycle_status") != passed_status:
+		return
+	frappe.db.set_value("Supplier", doc.vendor, "vendor_lifecycle_status", resolve_run_status(**_run_scope(doc)))
+
+
+def restore_status_after_draft_deleted(doc, in_progress_status):
+	"""Call from on_trash() of a stage document. Creating its draft set
+	in_progress_status on the Supplier (mark_vendor_status_in_progress);
+	deleting it unsubmitted puts back what the run actually stands at.
+	Left alone if something else has changed the status since."""
+	if doc.docstatus != 0 or not doc.vendor or doc.get("is_renewal") or not any(_run_scope(doc).values()):
+		return
+	if frappe.db.get_value("Supplier", doc.vendor, "vendor_lifecycle_status") != in_progress_status:
+		return
+	frappe.db.set_value("Supplier", doc.vendor, "vendor_lifecycle_status", resolve_run_status(**_run_scope(doc)))
+
+
+def set_renewal_expired(vendor, expired_status):
+	"""Disable an active vendor whose Compliance Audit / contract ran out
+	(expiry job, or a Failed Renewal) and say why in its status."""
+	frappe.db.set_value("Supplier", vendor, {"disabled": 1, "vendor_lifecycle_status": expired_status})
+
+
+def clear_renewal_expired(vendor, expired_status):
+	"""Undo set_renewal_expired() once a Renewal of that type passes (or the
+	Failed one is cancelled while still in date) — only if expired_status is
+	still the reason shown and no pipeline failure is disabling the vendor."""
+	if frappe.db.get_value("Supplier", vendor, "vendor_lifecycle_status") != expired_status:
+		return
+	if get_disable_reason_for_supplier(vendor):
+		return
+	frappe.db.set_value(
+		"Supplier", vendor, {"disabled": 0, "vendor_lifecycle_status": VENDOR_LIFECYCLE_STATUS_ACTIVE}
+	)
 
 
 def revert_stage_result(vendor, *, kyc=None, reboarding_request=None):

@@ -211,14 +211,19 @@ class VendorKYC(Document):
 		if handling == "Ignore":
 			return
 
-		# A Rejected KYC is a dead attempt — same as a Cancelled or
-		# Failed-and-since-superseded Vendor Sign Off — and never blocks a
-		# fresh one, regardless of this setting. The setting only governs
-		# genuine duplicates: a second KYC started while an earlier one for
-		# this same request is still Draft/In Progress/Approved.
+		# A Rejected, Trashed or Cancelled KYC is a dead attempt — same as a
+		# Cancelled or Failed-and-since-superseded Vendor Sign Off — and never
+		# blocks a fresh one (or its own amendment), regardless of this
+		# setting. The setting only governs genuine duplicates: a second KYC
+		# started while an earlier one for this same request is still
+		# Draft/In Progress/Approved.
 		other_kyc_names = frappe.get_all(
 			"Vendor KYC",
-			filters={"name": ["!=", self.name or ""], "onboarding_request": self.onboarding_request},
+			filters={
+				"name": ["!=", self.name or ""],
+				"onboarding_request": self.onboarding_request,
+				"docstatus": ["!=", 2],
+			},
 			pluck="name",
 		)
 		duplicate = next((name for name in other_kyc_names if not is_kyc_rejected(name)), None)

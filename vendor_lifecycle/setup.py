@@ -53,9 +53,11 @@ CUSTOM_FIELDS = {
 				"Re-Sampling Rejected",
 				"Sign Off In Progress",
 				"Sign Off Failed",
+				"Re-Sign Off In Progress",
 				"Re-Sign Off Failed",
-				"Signed",
 				"Active",
+				"Compliance Audit Expired",
+				"Contract Expired",
 				"Deboarding Initiated",
 				"Deboarding Failed",
 				"Temporarily Enabled",
@@ -401,11 +403,17 @@ def create_property_setters():
 		frappe.clear_cache(doctype=setter["doc_type"])
 
 
+# Options the app no longer uses — dropped by add_missing_supplier_status_options
+# unless some Supplier still holds that value.
+REMOVED_SUPPLIER_STATUS_OPTIONS = ("Signed",)
+
+
 def add_missing_supplier_status_options():
 	# Adds any vendor_lifecycle_status option the app now defines but the
-	# site's Custom Field doesn't have yet, in the app's order — options the
-	# site added itself are kept. For patches: create_custom_fields never
-	# updates an existing field here.
+	# site's Custom Field doesn't have yet, in the app's order, and drops
+	# REMOVED_SUPPLIER_STATUS_OPTIONS — options the site added itself are
+	# kept. For patches: create_custom_fields never updates an existing
+	# field here.
 	name = frappe.db.get_value("Custom Field", {"dt": "Supplier", "fieldname": "vendor_lifecycle_status"})
 	if not name:
 		return
@@ -418,6 +426,9 @@ def add_missing_supplier_status_options():
 			continue
 		position = options.index(previous) + 1 if previous in options else len(options)
 		options.insert(position, option)
+	for option in REMOVED_SUPPLIER_STATUS_OPTIONS:
+		if option in options and not frappe.db.exists("Supplier", {"vendor_lifecycle_status": option}):
+			options.remove(option)
 	if options != current:
 		field.options = "\n".join(options)
 		field.save()

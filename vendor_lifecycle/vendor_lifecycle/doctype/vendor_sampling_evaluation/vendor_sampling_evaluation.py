@@ -15,6 +15,8 @@ from vendor_lifecycle.vendor_lifecycle.stage_sequencing import (
 	require_no_active_document_for_kyc,
 )
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
+	refresh_status_after_pass_cancelled,
+	restore_status_after_draft_deleted,
 	VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STATUS_RESAMPLING_APPROVED,
@@ -85,12 +87,17 @@ class VendorSamplingEvaluation(Document):
 		# record of the result with zero side effects on the vendor.
 		if self.is_renewal:
 			return
-		mark_vendor_status_in_progress(
-			self,
+		mark_vendor_status_in_progress(self, self._in_progress_status())
+
+	def _in_progress_status(self):
+		return (
 			VENDOR_LIFECYCLE_STATUS_RESAMPLING_IN_PROGRESS
 			if self.is_reboarding
-			else VENDOR_LIFECYCLE_STATUS_SAMPLING_IN_PROGRESS,
+			else VENDOR_LIFECYCLE_STATUS_SAMPLING_IN_PROGRESS
 		)
+
+	def on_trash(self):
+		restore_status_after_draft_deleted(self, self._in_progress_status())
 
 	def _require_sample_identifier(self):
 		for row in self.samples:
@@ -333,6 +340,8 @@ class VendorSamplingEvaluation(Document):
 		if self.is_renewal:
 			return
 		self._revert_disable_if_this_was_the_rejected_one()
+		if self.evaluation_outcome == "Approved":
+			refresh_status_after_pass_cancelled(self)
 
 	def _revert_disable_if_this_was_the_rejected_one(self):
 		# Checks the actual current disable reason across all four stage
