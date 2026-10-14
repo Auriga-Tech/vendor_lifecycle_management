@@ -57,17 +57,12 @@ def after_install():
 	# install ends up fully seeded even if the site's own deployment
 	# process never runs `bench migrate` as a separate step.
 	#
-	# frappe.installer.install_app() only fires this after_install hook,
-	# then syncs this app's fixtures/*.json (Role, Custom Field, Property
-	# Setter) *afterward* - so on a genuinely fresh install, the "Vendor
-	# Lifecycle Manager"/"Vendor Lifecycle User" roles the new Vendor KYC
-	# Workflow links to wouldn't exist yet at this point unless fixtures
-	# are synced here first, ahead of after_migrate()'s own seed functions.
-	from frappe.utils.fixtures import sync_fixtures
+	# Roles, Custom Fields, Property Setters, Supplier Connections and the
+	# ERPNext permissions go in first (see vendor_lifecycle/setup.py) - the
+	# Vendor KYC Workflow and later seeds need the roles to exist.
+	from vendor_lifecycle.setup import install
 
-	sync_fixtures("vendor_lifecycle")
-	# after_migrate() already starts with sync_standard_files() itself, so
-	# nothing else is needed here.
+	install()
 	after_migrate()
 
 
@@ -85,6 +80,9 @@ def after_install():
 
 
 def after_migrate():
+	from vendor_lifecycle.setup import create_missing
+
+	create_missing()
 	sync_standard_files()
 	backfill_settings_defaults()
 

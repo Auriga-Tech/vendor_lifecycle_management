@@ -17,28 +17,9 @@ required_apps = ["erpnext"]
 # for roles (like Vendor Lifecycle User) that can't read Settings directly.
 extend_bootinfo = "vendor_lifecycle.vendor_lifecycle.boot.set_bootinfo"
 
-fixtures = [
-	{
-		"doctype": "Role",
-		"filters": [["role_name", "in", ["Vendor Lifecycle Manager", "Vendor Lifecycle User"]]]
-	},
-	{
-		"doctype": "Custom Field",
-		"filters": [["module", "=", "Vendor Lifecycle"]]
-	},
-	{
-		"doctype": "Property Setter",
-		"filters": [["module", "=", "Vendor Lifecycle"]]
-	},
-	{
-		# Connections added to Supplier (a core ERPNext doctype we don't
-		# own) via the same "custom" DocType Link mechanism Customize Form
-		# itself uses — there's no `module` field on this child doctype to
-		# filter by, so it's scoped by parent + custom instead.
-		"doctype": "DocType Link",
-		"filters": [["parent", "=", "Supplier"], ["custom", "=", 1]]
-	},
-]
+# Roles, Custom Fields, Property Setters and Supplier Connections are not
+# fixtures (those are force-imported on every migrate, undoing a site's own
+# changes) - see vendor_lifecycle/setup.py.
 
 # Each item in the list will be shown as an app in the apps page
 # add_to_apps_screen = [
