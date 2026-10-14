@@ -44,75 +44,6 @@ def sync_web_forms():
 		import_file_by_path(path, force=True)
 
 
-def before_migrate():
-	rename_license_template_doctype()
-	rename_insurance_template_doctype()
-
-
-def rename_license_template_doctype():
-	# "Audit License Template" (+ its child "Audit License Template Item")
-	# was renamed to "Licenses and Permits Template" for consistency with
-	# the "Licenses & Permits" table it feeds on Vendor Compliance Audit.
-	# Must run here, in before_migrate — by the time after_migrate hooks
-	# run, sync_all() has already synced the new doctype JSON files AND
-	# removed the old DocType's now-sourceless meta record as an "orphan"
-	# (harmless on its own — the doctype's table survives untouched — but
-	# without frappe.rename_doc, any existing License Template records
-	# would be stranded in that orphaned table, inaccessible through the
-	# new doctype). Renaming here, before sync_all ever runs, uses the
-	# real DB RENAME TABLE path instead, carrying any existing records
-	# (and every Link field pointing at them) over cleanly. Same pattern
-	# Frappe core itself uses for DocType renames (e.g.
-	# frappe/patches/v15_0/migrate_to_utm.py).
-	if not frappe.db.exists("DocType", "Audit License Template") and not frappe.db.exists(
-		"DocType", "Audit License Template Item"
-	):
-		return
-
-	# DocType's own after_rename tries to move the old doctype's folder/files
-	# on disk to the new location — but the source already ships the new
-	# files (and the old ones are already gone), so that move would fail.
-	# frappe.flags.in_patch skips that step; it's what real patches rely on
-	# too, just set for them automatically by patch_handler.run_all(), which
-	# doesn't apply to a before_migrate hook.
-	#
-	# Each rename is guarded independently (not just once, up front) so a
-	# migrate that died partway through a previous attempt — one renamed,
-	# the other not — can simply be re-run rather than needing manual cleanup.
-	frappe.flags.in_patch = True
-	try:
-		if frappe.db.exists("DocType", "Audit License Template Item"):
-			frappe.rename_doc("DocType", "Audit License Template Item", "Licenses and Permits Template Item", force=True)
-		if frappe.db.exists("DocType", "Audit License Template"):
-			frappe.rename_doc("DocType", "Audit License Template", "Licenses and Permits Template", force=True)
-	finally:
-		frappe.flags.in_patch = False
-	frappe.reload_doctype("Licenses and Permits Template Item", force=True)
-	frappe.reload_doctype("Licenses and Permits Template", force=True)
-
-
-def rename_insurance_template_doctype():
-	# Same rename, same reasoning as rename_license_template_doctype() above —
-	# "Audit Insurance Template" (+ its child "Audit Insurance Template Item")
-	# renamed to "Insurance Template", matching the "Insurance Template"
-	# label the field on Vendor Compliance Audit already used.
-	if not frappe.db.exists("DocType", "Audit Insurance Template") and not frappe.db.exists(
-		"DocType", "Audit Insurance Template Item"
-	):
-		return
-
-	frappe.flags.in_patch = True
-	try:
-		if frappe.db.exists("DocType", "Audit Insurance Template Item"):
-			frappe.rename_doc("DocType", "Audit Insurance Template Item", "Insurance Template Item", force=True)
-		if frappe.db.exists("DocType", "Audit Insurance Template"):
-			frappe.rename_doc("DocType", "Audit Insurance Template", "Insurance Template", force=True)
-	finally:
-		frappe.flags.in_patch = False
-	frappe.reload_doctype("Insurance Template Item", force=True)
-	frappe.reload_doctype("Insurance Template", force=True)
-
-
 def after_install():
 	# `bench install-app` never fires the `after_migrate` hook - that's a
 	# separate hook that only runs during `bench migrate` - so every one of
@@ -156,20 +87,6 @@ def after_install():
 def after_migrate():
 	sync_standard_files()
 	backfill_settings_defaults()
-	rename_ndc_terminology()
-	rename_stage_in_process_terminology()
-	migrate_onboarding_request_to_submittable()
-	migrate_kyc_firm_address_to_address_line_1()
-	normalize_kyc_state_casing()
-	migrate_kyc_status_draft_to_in_progress()
-	migrate_supplier_hold_to_is_frozen()
-	migrate_compliance_checks_to_child_table()
-	backfill_missing_compliance_check_template()
-	backfill_result_method_resolved()
-	rename_estimated_monthly_capacity()
-	migrate_facility_applicable_to_yes_no()
-	migrate_signoff_email_settings_to_vendor_lifecycle()
-	migrate_background_check_result_method_off_average()
 
 
 # Business Types considered "service nature", plus "Other" (too ambiguous to
@@ -209,56 +126,6 @@ def backfill_sampling_mandatory_business_types():
 	# weren't set yet at this point in the sequence).
 	settings.flags.ignore_mandatory = True
 	settings.save(ignore_permissions=True)
-
-
-def migrate_background_check_result_method_off_average():
-	# "Average" was removed from Background Check Result Method's own
-	# options — averaging each Reference's own average_rating silently
-	# dropped any Reference scored via a non-Average Reference Result
-	# Method (its own average_rating stays blank even though it has a real
-	# Passed/Failed outcome), so a genuinely Failed reference could vanish
-	# from the aggregate instead of failing the Background Check. A site
-	# already on "Average" is moved to the new default so it doesn't keep
-	# a now-invalid Select value sitting in the DB.
-	if frappe.db.get_single_value("Vendor Lifecycle Settings", "background_check_result_method") == "Average":
-		frappe.db.set_single_value(
-			"Vendor Lifecycle Settings", "background_check_result_method", "Each Reference Must Pass"
-		)
-
-
-def migrate_signoff_email_settings_to_vendor_lifecycle():
-	# signoff_email_account/signoff_email_always_cc were generalized into
-	# vendor_lifecycle_email_account/vendor_lifecycle_email_always_cc — now
-	# shared by every Vendor Lifecycle email, not just Sign-off's. Carries
-	# over whatever a deployment already had configured (renaming a field
-	# in JSON doesn't move its value in the shared `tabSingles` table), and
-	# turns "Use Emails" on for a site that already had a working account
-	# configured, so already-flowing email doesn't go silently quiet.
-	#
-	# Reads straight from Singles (not get_single_value) — by the time
-	# after_migrate hooks run, the DocType's own JSON has already been
-	# synced and no longer declares the old fieldname, so get_single_value
-	# would refuse it as an unknown field even though the old row is still
-	# sitting in the table.
-	def _old_singles_value(fieldname):
-		# frappe.db.get_value("Singles", ...) treats it like a normal
-		# DocType and adds an "order by creation" clause — the raw
-		# tabSingles table has no such column, so that raises. Plain SQL
-		# sidesteps it.
-		rows = frappe.db.sql(
-			"select `value` from `tabSingles` where doctype=%s and field=%s limit 1",
-			("Vendor Lifecycle Settings", fieldname),
-		)
-		return rows[0][0] if rows else None
-
-	old_account = _old_singles_value("signoff_email_account")
-	if old_account and not frappe.db.get_single_value("Vendor Lifecycle Settings", "vendor_lifecycle_email_account"):
-		frappe.db.set_single_value("Vendor Lifecycle Settings", "vendor_lifecycle_email_account", old_account)
-		frappe.db.set_single_value("Vendor Lifecycle Settings", "enable_vendor_lifecycle_emails", 1)
-
-	old_cc = _old_singles_value("signoff_email_always_cc")
-	if old_cc and not frappe.db.get_single_value("Vendor Lifecycle Settings", "vendor_lifecycle_email_always_cc"):
-		frappe.db.set_single_value("Vendor Lifecycle Settings", "vendor_lifecycle_email_always_cc", old_cc)
 
 
 # Sample/prototype only, proving out the Getting Started mechanism before
@@ -673,147 +540,6 @@ def _install_sample_form_tours():
 # fixed backfill_settings_defaults() instead.
 
 
-# "NDC" (No Dues Certificate) was renamed to the region-neutral "Clearance
-# Certificate" — a site that already had a value stored under the old option
-# names would otherwise be left with a value that no longer matches either
-# of the current Select options.
-NDC_TO_CLEARANCE = {
-	"After NDC": "After Clearance",
-	"Before NDC": "Before Clearance",
-}
-
-
-def rename_ndc_terminology():
-	# disable_timing itself was later removed entirely (deboarding now only
-	# disables a vendor once its Checklist is submitted) — this one-time
-	# terminology rename has nothing left to do once that field is gone.
-	# Vendor Lifecycle Settings is a Single, so its values live in the
-	# shared `tabSingles` table (has_column doesn't apply — there's no
-	# dedicated table to check columns on).
-	if not frappe.get_meta("Vendor Lifecycle Settings").has_field("disable_timing"):
-		return
-	current = frappe.db.get_single_value("Vendor Lifecycle Settings", "disable_timing")
-	if current in NDC_TO_CLEARANCE:
-		frappe.db.set_single_value("Vendor Lifecycle Settings", "disable_timing", NDC_TO_CLEARANCE[current])
-
-
-# The three "actively in progress" Vendor Lifecycle Stage values were
-# renamed to read as a status rather than a document type name — the
-# terminal/failed values (Onboarded, Onboarding Failed, Deboarded, ...)
-# never meant "still ongoing" and were left alone.
-STAGE_IN_PROCESS_RENAME = {
-	"Onboarding": "Onboarding in Process",
-	"Deboarding": "Deboarding in Process",
-	"Reboarding": "Reboarding in Process",
-}
-
-
-def rename_stage_in_process_terminology():
-	if not frappe.db.has_column("Supplier", "vendor_lifecycle_stage"):
-		return
-	for old, new in STAGE_IN_PROCESS_RENAME.items():
-		frappe.db.sql(
-			"update `tabSupplier` set vendor_lifecycle_stage = %s where vendor_lifecycle_stage = %s", (new, old)
-		)
-
-
-def migrate_onboarding_request_to_submittable():
-	# Vendor Onboarding Request dropped its custom status field (Draft/
-	# Accepted/Rejected) in favor of Frappe's native submit/cancel lifecycle
-	# — submitting a request now *is* the "Accepted" decision, and Frappe's
-	# own docstatus protection replaces the old manual edit-lock. A request
-	# that was already "Accepted", or that already has a Vendor KYC started
-	# against it (which could only happen if it had been accepted at some
-	# point, whatever its status was later changed to), gets docstatus=1 so
-	# real, already-processed work doesn't get silently reset to Draft.
-	#
-	# The old `status` column itself has to be dropped separately, outside
-	# of this hook — an ALTER TABLE here triggers an implicit commit
-	# mid-migrate, which Frappe blocks (ImplicitCommitError). It's a harmless
-	# orphan column until then; nothing in this app reads it anymore.
-	if not frappe.db.has_column("Vendor Onboarding Request", "status"):
-		return
-
-	processed = frappe.db.sql(
-		"""
-		select distinct vor.name
-		from `tabVendor Onboarding Request` vor
-		left join `tabVendor KYC` kyc on kyc.onboarding_request = vor.name
-		where vor.status = 'Accepted' or kyc.name is not null
-		""",
-		as_dict=True,
-	)
-	for row in processed:
-		frappe.db.set_value("Vendor Onboarding Request", row.name, "docstatus", 1)
-
-
-def migrate_kyc_firm_address_to_address_line_1():
-	# Vendor KYC's single "Firm Address" field was split into "Address Line 1"
-	# / "Address Line 2" to match how Vendor Onboarding Request already
-	# captures address lines — carry over whatever was already typed in
-	# rather than silently losing it. Everything goes into line 1 as-is;
-	# there's no reliable way to split free text back into two lines.
-	#
-	# The old `firm_address` column itself has to be dropped separately,
-	# outside of this hook — same ImplicitCommitError reason as the
-	# Onboarding Request `status` column above.
-	if not frappe.db.has_column("Vendor KYC", "firm_address"):
-		return
-
-	rows = frappe.db.sql(
-		"""
-		select name, firm_address from `tabVendor KYC`
-		where firm_address is not null and firm_address != ''
-		""",
-		as_dict=True,
-	)
-	for row in rows:
-		frappe.db.set_value("Vendor KYC", row.name, "address_line_1", row.firm_address)
-
-
-def normalize_kyc_state_casing():
-	# India Compliance's Address controller rejects any state name that
-	# isn't an exact case match against its official list — existing Vendor
-	# KYC records saved before that constraint was enforced here (e.g.
-	# "rajasthan" instead of "Rajasthan") would otherwise fail the very next
-	# time they're saved or submitted. One-time, case-insensitive cleanup.
-	if "india_compliance" not in frappe.get_installed_apps():
-		return
-
-	from india_compliance.gst_india.constants import STATE_NUMBERS
-
-	rows = frappe.db.sql(
-		"""
-		select name, state from `tabVendor KYC`
-		where country = 'India' and state is not null and state != ''
-		""",
-		as_dict=True,
-	)
-	official_by_lower = {s.lower(): s for s in STATE_NUMBERS}
-	for row in rows:
-		match = official_by_lower.get(row.state.strip().lower())
-		if match and match != row.state:
-			frappe.db.set_value("Vendor KYC", row.name, "state", match)
-
-
-def migrate_kyc_status_draft_to_in_progress():
-	# "Draft" was renamed to "In Progress" (Select options: In Progress /
-	# Verified / Rejected, later Approved instead of Verified) when the
-	# Reject feature was added — existing records still hold the old
-	# label. A submitted (docstatus 1) record that never got flipped to
-	# the submitted label is a separate, pre-existing data gap (should
-	# have happened in on_submit) fixed here at the same time, rather
-	# than left stuck on a status that no longer exists at all.
-	frappe.db.sql("""
-		update `tabVendor KYC` set status = 'In Progress'
-		where status = 'Draft' and docstatus = 0
-	""")
-	frappe.db.sql("""
-		update `tabVendor KYC` set status = 'Approved'
-		where status = 'Draft' and docstatus = 1
-	""")
-
-
 # Vendor KYC's own status field (see vendor_kyc.json) drives, and is driven
 # by, this Workflow. A Vendor Lifecycle User does the actual KYC work and
 # submits it for review ("Send for Approval": In Progress -> Approval
@@ -982,29 +708,6 @@ def install_vendor_reboarding_request_workflow():
 	)
 
 
-# This function used to also convert on_hold=1 to is_frozen=1 for any
-# vendor_kyc-linked Supplier (the onboarding freeze mechanism's own,
-# one-time transition off the old on_hold/hold_type fields, long since
-# complete on every site). Removed: on_hold is still a live, unrestricted
-# core ERPNext field a staff member can set on any Supplier — including one
-# of ours — for a completely unrelated reason (e.g. a payment dispute).
-# Running that conversion on every migrate meant a real, current, unrelated
-# hold got silently reinterpreted as a vendor-lifecycle freeze the next
-# time anyone migrated.
-def migrate_supplier_hold_to_is_frozen():
-	# Suppliers created before the vendor_kyc backlink field existed never
-	# got it backfilled — without it, the read_only_depends_on Property
-	# Setter on Supplier.is_frozen wouldn't recognize them as vendor-
-	# lifecycle Suppliers at all. Backfill from Vendor KYC's own (older)
-	# `supplier` field first.
-	frappe.db.sql("""
-		update `tabSupplier` s
-		inner join `tabVendor KYC` k on k.supplier = s.name
-		set s.vendor_kyc = k.name
-		where (s.vendor_kyc is null or s.vendor_kyc = '')
-	""")
-
-
 COMPLIANCE_CHECK_TYPES = [
 	("Background Check", "General background verification outcome."),
 	("Sanctions / PEP Screening", "Screening against sanctions and politically-exposed-person lists (e.g. OFAC, UN, EU)."),
@@ -1047,62 +750,6 @@ def _ensure_default_compliance_check_template():
 		"description": "All standard check types. Copy this and remove rows to make a narrower template.",
 		"items": [{"check_type": name} for name, _description in COMPLIANCE_CHECK_TYPES],
 	}).insert(ignore_permissions=True)
-
-
-def migrate_compliance_checks_to_child_table():
-	# Five separate Status(+Notes) field pairs on Vendor Background Check
-	# (Background Check, Sanctions/PEP, Criminal Record, Credit Check,
-	# Debarment Check) were consolidated into one repeatable "Compliance
-	# Checks" table, so a deployment can add its own check types later
-	# without a schema change. Standard check types + the default template
-	# are seeded once by the seed_vendor_lifecycle_master_data patch, not
-	# here — this now only ever carries over any non-default data already
-	# sitting in the old columns, once.
-	#
-	# The old columns themselves are left as harmless orphans rather than
-	# dropped here — same ImplicitCommitError reason as the other
-	# migrations in this file.
-	if not frappe.db.has_column("Vendor Background Check", "background_check_status"):
-		return
-
-	rows = frappe.db.sql(
-		"""
-		select name, background_check_status, background_check_notes, background_check_report,
-			   sanctions_screening_status, sanctions_screening_notes,
-			   criminal_record_check_status, criminal_record_check_notes,
-			   credit_check_status, credit_check_score, credit_check_source, credit_check_notes,
-			   debarment_check_status, debarment_check_notes
-		from `tabVendor Background Check`
-		""",
-		as_dict=True,
-	)
-	for row in rows:
-		# (check_type, status, notes, source, reference_value, attachment)
-		checks = [
-			("Background Check", row.background_check_status, row.background_check_notes, None, None, row.background_check_report),
-			("Sanctions / PEP Screening", row.sanctions_screening_status, row.sanctions_screening_notes, None, None, None),
-			("Criminal / Court Record Check", row.criminal_record_check_status, row.criminal_record_check_notes, None, None, None),
-			("Credit / Financial Standing Check", row.credit_check_status, row.credit_check_notes, row.credit_check_source, row.credit_check_score, None),
-			("Regulatory Debarment / Blacklist Check", row.debarment_check_status, row.debarment_check_notes, None, None, None),
-		]
-		has_data = any(
-			(status and status not in ("Not Started", "")) or notes or source or reference_value or attachment
-			for _check_type, status, notes, source, reference_value, attachment in checks
-		)
-		if not has_data:
-			continue
-
-		doc = frappe.get_doc("Vendor Background Check", row.name)
-		for check_type, status, notes, source, reference_value, attachment in checks:
-			doc.append("compliance_checks", {
-				"check_type": check_type,
-				"status": status or "Not Started",
-				"notes": notes,
-				"source": source,
-				"reference_value": reference_value,
-				"attachment": attachment,
-			})
-		doc.save(ignore_permissions=True)
 
 
 SETTINGS_FIELD_DEFAULTS = {
@@ -1206,84 +853,6 @@ def backfill_default_satisfaction_rating_template():
 		)
 
 
-def backfill_missing_compliance_check_template():
-	# migrate_compliance_checks_to_child_table() above only ever backfills
-	# compliance_check_template for a Background Check that had real
-	# legacy compliance data to carry over — one that simply had every old
-	# status column at its default ("Not Started"/blank) was left with
-	# compliance_check_template blank, same as before that migration ever
-	# ran. Once the field became mandatory, that permanently blocks saving
-	# such a record ever again through any path — including the internal
-	# re-save recompute_overall_result() does whenever one of its
-	# References changes, which otherwise fails with a MandatoryError and
-	# silently leaves the Result stuck stale forever.
-	#
-	# Defaults to "Standard Compliance Checks" (always guaranteed to exist
-	# by _ensure_default_compliance_check_template(), called earlier in
-	# this same after_migrate chain) and loads that template's Check Types
-	# onto it, so the record is immediately usable rather than merely
-	# unblocked. Only touches drafts — a submitted or cancelled Background
-	# Check is locked either way and re-saving it here would serve no
-	# purpose.
-	from vendor_lifecycle.vendor_lifecycle.doctype.vendor_background_check.vendor_background_check import (
-		recompute_overall_result,
-	)
-
-	affected = frappe.get_all(
-		"Vendor Background Check",
-		filters={"compliance_check_template": ["in", ["", None]], "docstatus": 0},
-		pluck="name",
-	)
-	for name in affected:
-		doc = frappe.get_doc("Vendor Background Check", name)
-		doc.compliance_check_template = "Standard Compliance Checks"
-		if not doc.compliance_checks:
-			doc.load_compliance_checks_from_template()
-		doc.save(ignore_permissions=True)
-		# Saving the Background Check itself never recomputes its own
-		# Result — that only ever happens from the Reference side. Now
-		# that saving is unblocked, force one recompute so a Result that
-		# went stale while this record was stuck (e.g. a Reference was
-		# added or changed in the meantime) is corrected immediately,
-		# rather than waiting for the next unrelated Reference event.
-		recompute_overall_result(name)
-
-
-def backfill_result_method_resolved():
-	# "result_method_resolved" was added alongside the fix that made
-	# average_rating hide itself for non-"Average" methods — a Background
-	# Check whose Result was computed before that field existed never got
-	# it backfilled, and it only ever gets set again by
-	# recompute_overall_result() (triggered by a Reference event, which
-	# doesn't fire again for an unrelated field just sitting there stale).
-	# Left as None forever, check_result_is_fresh() would then permanently
-	# see it as different from a fresh computation — even when nothing
-	# about the actual Result has changed — blocking submission of an
-	# otherwise perfectly valid draft in an unbreakable loop.
-	#
-	# Only backfills rows where a fresh recomputation exactly matches the
-	# Result already stored — if it's drifted for some other reason, this
-	# leaves it alone rather than silently overwriting a genuine staleness
-	# with a plausible-looking value.
-	from vendor_lifecycle.vendor_lifecycle.doctype.vendor_background_check.vendor_background_check import (
-		_compute_aggregate,
-	)
-
-	affected = frappe.get_all(
-		"Vendor Background Check",
-		filters={"result_method_resolved": ["is", "not set"]},
-		fields=["name", "outcome"],
-	)
-	for row in affected:
-		if not row.outcome:
-			continue
-		fresh_result, fresh_method, _references = _compute_aggregate(row.name)
-		if fresh_result == row.outcome:
-			frappe.db.set_value(
-				"Vendor Background Check", row.name, "result_method_resolved", fresh_method, update_modified=False
-			)
-
-
 # Generic, industry-neutral starter items — safety, legal, environmental, and
 # labor basics that apply regardless of country or industry. Not meant to be
 # exhaustive or authoritative for any specific sector; a deployment is
@@ -1309,36 +878,6 @@ DEFAULT_SIGNOFF_EMAIL_TEMPLATE = "Vendor Sign-off Request"
 DEFAULT_SIGNOFF_RECEIVED_EMAIL_TEMPLATE = "Vendor Sign-off Document Received"
 DEFAULT_SIGNOFF_PASSED_EMAIL_TEMPLATE = "Vendor Sign-off Passed"
 DEFAULT_SIGNOFF_FAILED_EMAIL_TEMPLATE = "Vendor Sign-off Failed"
-
-
-def rename_estimated_monthly_capacity():
-	# "Estimated Monthly Capacity" was renamed to the more specific
-	# "Estimated Monthly Production Capacity" on both Vendor Onboarding
-	# Request and Vendor KYC (they've always carried this as two
-	# independent, identically-named fields — see COMMON_BUSINESS_DETAIL_
-	# FIELDS and start_kyc()'s field copy). frappe.rename_field() only
-	# copies data into the new column; the old column is left as a
-	# harmless orphan, same as every other rename in this file.
-	from frappe.model.utils.rename_field import rename_field
-
-	for doctype in ("Vendor Onboarding Request", "Vendor KYC"):
-		if frappe.db.has_column(doctype, "estimated_monthly_capacity"):
-			rename_field(doctype, "estimated_monthly_capacity", "estimated_monthly_production_capacity")
-
-
-def migrate_facility_applicable_to_yes_no():
-	# "Facility Applicable" was a plain checkbox (0/1, defaulting to 1); it's
-	# now a mandatory Yes/No dropdown that also governs whether Facility
-	# Area/Unit get zeroed out. Existing rows still hold '1'/'0' (or blank,
-	# on very old rows) — converted to the new option strings so an
-	# already-answered record keeps showing (or hiding) its Facility Area
-	# section exactly as it did before, rather than looking like the data
-	# vanished. Idempotent: safe to run on every migrate.
-	frappe.db.sql("update `tabVendor Compliance Audit` set facility_applicable = 'Yes' where facility_applicable = '1'")
-	frappe.db.sql(
-		"update `tabVendor Compliance Audit` set facility_applicable = 'No'"
-		" where facility_applicable in ('0', '') or facility_applicable is null"
-	)
 
 
 DEFAULT_COMPLIANCE_CHECK_SOURCES = [

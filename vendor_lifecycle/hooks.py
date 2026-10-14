@@ -156,7 +156,6 @@ after_install = "vendor_lifecycle.vendor_lifecycle.install.after_install"
 # Workspace Sidebar / Desktop Icon in sync even after later edits to those
 # files (Frappe doesn't auto-import them the way it does other standard
 # doctypes). See vendor_lifecycle/install.py for why this is needed.
-before_migrate = "vendor_lifecycle.vendor_lifecycle.install.before_migrate"
 after_migrate = "vendor_lifecycle.vendor_lifecycle.install.after_migrate"
 
 # Uninstallation
