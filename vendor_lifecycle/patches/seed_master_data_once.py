@@ -28,7 +28,6 @@ def execute():
 		backfill_default_compliance_check_sources,
 		backfill_default_coverage_types,
 		backfill_default_licenses_and_permits_masters,
-		remove_stale_generic_insurers,
 		backfill_default_insurance_masters,
 		backfill_default_rating_criteria_template,
 		backfill_default_sampling_evaluation_template,
@@ -44,7 +43,6 @@ def execute():
 	backfill_default_compliance_check_sources()
 	backfill_default_coverage_types()
 	backfill_default_licenses_and_permits_masters()
-	remove_stale_generic_insurers()
 	backfill_default_insurance_masters()
 	backfill_default_rating_criteria_template()
 	backfill_default_sampling_evaluation_template()

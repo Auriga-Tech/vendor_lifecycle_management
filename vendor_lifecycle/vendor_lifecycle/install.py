@@ -3,7 +3,6 @@
 
 import glob
 import os
-import shutil
 
 import frappe
 from frappe.modules.import_file import import_file_by_path
@@ -48,12 +47,6 @@ def sync_web_forms():
 def before_migrate():
 	rename_license_template_doctype()
 	rename_insurance_template_doctype()
-	# Must run before sync_dashboards() (which happens early in migrate,
-	# well before after_migrate hooks) - otherwise this leftover empty
-	# folder from the Number Card rename still triggers the "missing"
-	# warning on this exact run, one time, before after_migrate() ever
-	# gets a chance to clean it up.
-	remove_stale_module_directory("number_card", "vendors_through_app")
 
 
 def rename_license_template_doctype():
@@ -166,37 +159,17 @@ def after_migrate():
 	rename_ndc_terminology()
 	rename_stage_in_process_terminology()
 	migrate_onboarding_request_to_submittable()
-	remove_stale_setting("request_edit_override_role")
 	migrate_kyc_firm_address_to_address_line_1()
 	normalize_kyc_state_casing()
 	migrate_kyc_status_draft_to_in_progress()
 	migrate_supplier_hold_to_is_frozen()
-	remove_stale_client_script("Vendor Background Check Load Rating Template Button")
 	migrate_compliance_checks_to_child_table()
-	for name in REMOVED_CLIENT_SCRIPTS:
-		remove_stale_client_script(name)
 	backfill_missing_compliance_check_template()
 	backfill_result_method_resolved()
 	rename_estimated_monthly_capacity()
 	migrate_facility_applicable_to_yes_no()
 	migrate_signoff_email_settings_to_vendor_lifecycle()
-	remove_stale_setting("esign_provider")
-	remove_stale_setting("supplier_unfreeze_role")
-	remove_stale_setting("signoff_email_account")
-	remove_stale_setting("signoff_email_always_cc")
-	remove_stale_setting("signoff_email_template")
-	remove_stale_setting("signoff_received_email_template")
-	remove_stale_setting("signoff_passed_email_template")
-	remove_stale_setting("signoff_failed_email_template")
-	remove_stale_web_form("vendor-signoff-upload")
-	remove_stale_setting("enforce_sequential_stages")
-	remove_stale_setting("sampling_mandatory")
 	migrate_background_check_result_method_off_average()
-	remove_stale_setting("minimum_average_rating")
-	remove_stale_web_form("vendor-satisfaction-survey")
-	remove_stale_setting("disable_timing")
-	remove_stale_setting("deboarding_notification_provider")
-	remove_stale_number_card("Vendors Through App")
 
 
 # Business Types considered "service nature", plus "Other" (too ambiguous to
@@ -253,13 +226,6 @@ def migrate_background_check_result_method_off_average():
 		)
 
 
-def remove_stale_setting(fieldname):
-	# "Vendor Lifecycle Settings" is a Single — removing a field from its
-	# JSON leaves an orphan row sitting in the shared `tabSingles` table
-	# forever unless explicitly cleaned up (there's no column to drop).
-	frappe.db.delete("Singles", {"doctype": "Vendor Lifecycle Settings", "field": fieldname})
-
-
 def migrate_signoff_email_settings_to_vendor_lifecycle():
 	# signoff_email_account/signoff_email_always_cc were generalized into
 	# vendor_lifecycle_email_account/vendor_lifecycle_email_always_cc — now
@@ -293,45 +259,6 @@ def migrate_signoff_email_settings_to_vendor_lifecycle():
 	old_cc = _old_singles_value("signoff_email_always_cc")
 	if old_cc and not frappe.db.get_single_value("Vendor Lifecycle Settings", "vendor_lifecycle_email_always_cc"):
 		frappe.db.set_single_value("Vendor Lifecycle Settings", "vendor_lifecycle_email_always_cc", old_cc)
-
-
-def remove_stale_client_script(name):
-	# Fixture sync only inserts/updates records still present in the
-	# fixture file — a Client Script removed from fixtures/client_script.json
-	# (because the field/method it depended on no longer exists) is left
-	# behind in the database forever unless deleted explicitly here.
-	frappe.db.delete("Client Script", {"name": name})
-
-
-def remove_stale_web_form(name):
-	# Migrate's own "Removing orphan doctypes" step only targets DocType
-	# records — a Web Form whose JSON file has been deleted is left behind
-	# in the database forever otherwise, same as a Client Script above.
-	frappe.db.delete("Web Form", {"name": name})
-
-
-def remove_stale_number_card(name):
-	# Same story as remove_stale_web_form above - migrate's "Removing
-	# orphan doctypes" step doesn't cover Number Card either, so a renamed
-	# one (its old JSON file deleted, a new one added under the new name)
-	# leaves the old DB record behind forever, and every subsequent migrate
-	# logs a harmless but noisy "<old path>.json missing" warning trying to
-	# resync it.
-	frappe.db.delete("Number Card", {"name": name})
-
-
-def remove_stale_module_directory(subfolder, name):
-	# Deleting every file inside a module subfolder (e.g. renaming a Number
-	# Card) doesn't remove the now-empty folder itself from anyone's
-	# existing checkout - git only tracks files, not directories, so
-	# `git pull` leaves it sitting there empty. Frappe's own dashboard sync
-	# then lists every folder under number_card/ and tries to load a .json
-	# out of each one it finds, logging a harmless but noisy "missing"
-	# warning for this one every migrate. Removing it here means nobody who
-	# already had the old file needs to clean it up by hand.
-	path = frappe.get_app_path("vendor_lifecycle", "vendor_lifecycle", subfolder, name)
-	if os.path.isdir(path):
-		shutil.rmtree(path)
 
 
 # Sample/prototype only, proving out the Getting Started mechanism before
@@ -731,34 +658,6 @@ def _install_sample_form_tours():
 				},
 			],
 		}).insert(ignore_permissions=True)
-
-
-# All Client Script logic in this app was moved into real, committed .js
-# files (doctype .js/_list.js files, and Supplier's via doctype_js/
-# doctype_list_js in hooks.py) — Client Script is editable/disable-able by
-# any System Manager straight from the browser, with no code review and no
-# git history, which this app no longer wants for anything it owns. The
-# fixtures/client_script.json file itself was deleted, so fixture sync will
-# never recreate these — but a site that already had them (from before this
-# change) needs them removed explicitly here, the same as any other
-# already-removed fixture (see remove_stale_client_script above).
-REMOVED_CLIENT_SCRIPTS = [
-	"Supplier Hide Direct Create Button",
-	"Supplier Hide Vendor Lifecycle Connections Add Button",
-	"Vendor Background Check Hide Direct Create Button",
-	"Vendor Background Check Reference Hide Direct Create Button",
-	"Vendor KYC Create Additional Records Button",
-	"Vendor KYC Direct Create Notice",
-	"Vendor KYC Freeze Supplier Button",
-	"Vendor KYC GSTIN Address Buttons",
-	"Vendor KYC Hide Connections Add Button",
-	"Vendor KYC Hide Direct Create Button",
-	"Vendor KYC PAN Auto-Extract from GSTIN",
-	"Vendor KYC Reject Button",
-	"Vendor Onboarding Request Hide Connections Add Button",
-	"Vendor Onboarding Request Start KYC Button",
-	"Vendor Sampling Evaluation Load Template Button",
-]
 
 
 # There used to be a migrate_reference_check_mandatory_setting() here, a
@@ -1569,26 +1468,6 @@ DEFAULT_INSURERS = [
 	("Star Health and Allied Insurance", "Health insurance provider."),
 	("Berkshire Hathaway", "General/reinsurance provider."),
 ]
-
-# Superseded by DEFAULT_INSURERS above (2026-09-11) — removed here, not left
-# for a future site to accumulate alongside the real names.
-STALE_GENERIC_INSURERS = [
-	"Local / Regional Insurer",
-	"National Insurer",
-	"International / Multinational Insurer",
-	"Broker-Arranged Coverage",
-]
-
-
-def remove_stale_generic_insurers():
-	for name in STALE_GENERIC_INSURERS:
-		if not frappe.db.exists("Insurer", name):
-			continue
-		if frappe.db.exists("Vendor Compliance Audit Insurance", {"insurer": name}):
-			# Never delete a master record something real still points at
-			# — leave it for a human to reconcile instead.
-			continue
-		frappe.delete_doc("Insurer", name, ignore_permissions=True, force=True)
 
 DEFAULT_INSURANCE_TEMPLATE = "Standard Insurance Coverage"
 
