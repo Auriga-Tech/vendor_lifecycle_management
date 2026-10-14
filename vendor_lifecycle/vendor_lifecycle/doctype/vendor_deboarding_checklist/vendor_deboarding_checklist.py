@@ -3,7 +3,7 @@
 
 import frappe
 from frappe.model.document import Document
-from frappe.utils import add_to_date, now_datetime, today
+from frappe.utils import add_to_date, cint, format_datetime, now_datetime, today
 
 from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_request.vendor_deboarding_request import (
 	block_if_stopped,
@@ -12,6 +12,8 @@ from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_request.vendor_
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING_FAILED,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
 	get_kyc_vendor_contact,
 	get_supplier_contact_email,
 	require_vendor_lifecycle_email_account,
@@ -31,12 +33,22 @@ OPEN_ITEM_STATUSES = ("Not Started", "In Progress")
 BLOCKING_ITEM_STATUSES = ("Not Started", "In Progress")
 REMARK_REQUIRED_STATUSES = ("Invalid", "Unable to Complete")
 
-# How long a manual "Temporarily Enable Supplier" override lasts before the
-# nightly job (see tasks.auto_disable_expired_temporary_enables, wired to
-# run at 2 AM via hooks.py's cron scheduler_events) auto-disables the
-# Supplier again.
-TEMPORARY_ENABLE_DAYS = 7
 TEMPORARILY_ENABLED_STATUS = "Temporarily Enabled"
+
+# Supplier stages in which the same toggle is also offered on the Supplier
+# form itself.
+SUPPLIER_TEMPORARY_ENABLE_STAGES = (
+	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING,
+	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+)
+
+
+def get_temporary_enable_days():
+	# How long a manual "Temporarily Enable Supplier" override lasts before
+	# the nightly job (tasks.auto_disable_expired_temporary_enables, 2 AM)
+	# auto-disables the Supplier again. Mandatory and at least 1 in Settings.
+	return cint(frappe.db.get_single_value("Vendor Lifecycle Settings", "temporary_enable_days")) or 7
 
 # Same cadence for both: a staff member who hasn't finished their assigned
 # task(s), and a vendor who hasn't sent back the signed clearance
@@ -612,13 +624,22 @@ class VendorDeboardingChecklist(Document):
 	def get_temporary_enable_button_info(self):
 		if self.docstatus != 1 or self.mark_as_failed or not self._can_temporarily_enable():
 			return {"show": False}
-		info = {"show": True, "is_temporarily_enabled": bool(self.is_temporarily_enabled)}
+		days = get_temporary_enable_days()
+		info = {
+			"show": True,
+			"checklist": self.name,
+			"is_temporarily_enabled": bool(self.is_temporarily_enabled),
+			"days": days,
+		}
 		if self.is_temporarily_enabled and self.temporarily_enabled_on:
-			info["expires_on"] = add_to_date(self.temporarily_enabled_on, days=TEMPORARY_ENABLE_DAYS)
+			info["expires_on"] = add_to_date(self.temporarily_enabled_on, days=days)
 		return info
 
 	@frappe.whitelist()
 	def toggle_temporary_enable(self):
+		return self._toggle_temporary_enable(source=self.doctype)
+
+	def _toggle_temporary_enable(self, source):
 		"""A deboarding Checklist has no automatic effect on the vendor
 		beyond disabling it on submit — this is the one exception: a
 		manual, time-boxed re-enable, for when the vendor genuinely needs
@@ -628,7 +649,7 @@ class VendorDeboardingChecklist(Document):
 
 		- Not currently temporarily enabled -> enable it. Auto-reverted by
 		  tasks.auto_disable_expired_temporary_enables() once
-		  TEMPORARY_ENABLE_DAYS have passed, if nobody's disabled it
+		  Settings' Temporary Enable Days have passed, if nobody's disabled it
 		  before then.
 		- Currently temporarily enabled -> disable it early instead of
 		  waiting out the rest of the window. This clears
@@ -638,7 +659,10 @@ class VendorDeboardingChecklist(Document):
 		  disabled supplier" action, and no stale "temporarily enabled
 		  until X" state left showing on this Checklist.
 
-		Either direction can be repeated afterward for another window."""
+		Either direction can be repeated afterward for another window.
+		Same toggle is offered on the Supplier form (see
+		toggle_supplier_temporary_enable); `source` names which form was
+		used, for the timeline comment."""
 		if self.docstatus != 1:
 			frappe.throw(frappe._("This Checklist must be submitted first."))
 		if self.mark_as_failed:
@@ -655,6 +679,9 @@ class VendorDeboardingChecklist(Document):
 			})
 			self.db_set("is_temporarily_enabled", 0)
 			self.db_set("temporarily_enabled_on", None)
+			self.add_comment(
+				"Comment", text=frappe._("Supplier disabled again (from {0}).").format(frappe._(source))
+			)
 			return {"is_temporarily_enabled": False}
 
 		now = now_datetime()
@@ -664,11 +691,58 @@ class VendorDeboardingChecklist(Document):
 		})
 		self.db_set("is_temporarily_enabled", 1)
 		self.db_set("temporarily_enabled_on", now)
+		expires_on = add_to_date(now, days=get_temporary_enable_days())
+		self.add_comment(
+			"Comment",
+			text=frappe._("Supplier temporarily enabled until {0} (from {1}).").format(
+				format_datetime(expires_on), frappe._(source)
+			),
+		)
 		return {
 			"is_temporarily_enabled": True,
 			"temporarily_enabled_on": now,
-			"expires_on": add_to_date(now, days=TEMPORARY_ENABLE_DAYS),
+			"expires_on": expires_on,
 		}
+
+
+def get_supplier_temporary_enable_checklist(supplier):
+	# The Checklist that holds this Supplier's temporary-enable state: its
+	# latest submitted, not-failed one. None if the Supplier isn't in one of
+	# SUPPLIER_TEMPORARY_ENABLE_STAGES or has no such Checklist.
+	stage = frappe.db.get_value("Supplier", supplier, "vendor_lifecycle_stage")
+	if stage not in SUPPLIER_TEMPORARY_ENABLE_STAGES:
+		return None
+	name = frappe.db.get_value(
+		"Vendor Deboarding Checklist",
+		{"supplier": supplier, "docstatus": 1, "mark_as_failed": 0},
+		"name",
+		order_by="creation desc",
+	)
+	return frappe.get_doc("Vendor Deboarding Checklist", name) if name else None
+
+
+def set_supplier_temporary_enable_onload(doc, method=None):
+	"""Wired via hooks.py doc_events on Supplier's "onload" — attaches the
+	same button info the Checklist form uses, so supplier.js can draw the
+	toggle synchronously from frm.doc.__onload."""
+	checklist = get_supplier_temporary_enable_checklist(doc.name)
+	if not checklist:
+		return
+	info = checklist.get_temporary_enable_button_info()
+	if info.get("show"):
+		doc.set_onload("temporary_enable", info)
+
+
+@frappe.whitelist()
+def toggle_supplier_temporary_enable(supplier):
+	# Supplier-form twin of VendorDeboardingChecklist.toggle_temporary_enable:
+	# acts on the same Checklist, so both buttons always show the same state.
+	checklist = get_supplier_temporary_enable_checklist(supplier)
+	if not checklist:
+		frappe.throw(
+			frappe._("This Supplier has no submitted Deboarding Checklist, or is not in a stage that allows this.")
+		)
+	return checklist._toggle_temporary_enable(source="Supplier")
 
 
 @frappe.whitelist()

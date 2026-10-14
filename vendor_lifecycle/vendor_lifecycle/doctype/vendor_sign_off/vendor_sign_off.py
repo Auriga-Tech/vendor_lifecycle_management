@@ -23,6 +23,8 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
 	VENDOR_LIFECYCLE_STATUS_ACTIVE,
 	VENDOR_LIFECYCLE_STATUS_DISABLED,
+	VENDOR_LIFECYCLE_STATUS_RESIGN_OFF_FAILED,
+	VENDOR_LIFECYCLE_STATUS_SIGN_OFF_FAILED,
 	VENDOR_LIFECYCLE_STATUS_SIGN_OFF_IN_PROGRESS,
 	get_disable_reason_for_supplier,
 	get_failed_stage_reason,
@@ -708,7 +710,14 @@ class VendorSignOff(Document):
 		# clears it for a re-boarding-flagged document (see its own
 		# is_reboarding branch) — so a passing re-boarding Sign Off is the
 		# one and only place left to actually re-enable the vendor.
-		if self.is_reboarding:
+		#
+		# An onboarding Sign Off can still be the retry of a Failed one
+		# (see _require_no_active_signoff_unless_failed) — that Failed one
+		# disabled the vendor and stays submitted, so nothing else would
+		# ever re-enable it. get_disable_reason_for_supplier() already
+		# ignores a Failed Sign Off superseded by this passing one; anything
+		# else still disabling the vendor keeps it disabled.
+		if self.is_reboarding or not get_disable_reason_for_supplier(self.vendor):
 			update["disabled"] = 0
 		# Recorded here too (not just for a Renewal) — a contract's
 		# validity is a real thing from the very first Sign Off, not
@@ -742,20 +751,25 @@ class VendorSignOff(Document):
 
 	def _handle_failed_result(self):
 		# Same treatment as a Failed Compliance Audit / Background Check
-		# (_handle_failed_result there) — disables the Supplier outright.
-		# vendor_lifecycle_status is deliberately left untouched, matching
-		# that same convention: it's a progress tracker, not the actual
-		# block (disabled is), and Sign-off has no "next stage" to point it
-		# at anyway. The coarse vendor_lifecycle_stage still reflects this
-		# (Onboarding Failed / Reboarding Failed) — that field's whole
-		# point is showing the current big-picture pipeline state, and a
-		# Failed Sign-off is unambiguously part of that regardless of
-		# which pipeline it belongs to.
+		# (_handle_failed_result there) — disables the Supplier outright,
+		# and marks Stage (Onboarding/Reboarding Failed) and Status
+		# (Sign Off Failed / Re-Sign Off Failed) so neither keeps reading
+		# "in progress".
 		if self.vendor:
-			frappe.db.set_value("Supplier", self.vendor, {
+			frappe.db.set_value("Supplier", self.vendor, self._failed_supplier_state())
+
+	def _failed_supplier_state(self):
+		if self.is_reboarding:
+			return {
 				"disabled": 1,
-				"vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED if self.is_reboarding else VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
-			})
+				"vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED,
+				"vendor_lifecycle_status": VENDOR_LIFECYCLE_STATUS_RESIGN_OFF_FAILED,
+			}
+		return {
+			"disabled": 1,
+			"vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_ONBOARDING_FAILED,
+			"vendor_lifecycle_status": VENDOR_LIFECYCLE_STATUS_SIGN_OFF_FAILED,
+		}
 
 	def _send_outcome_email(self):
 		# Must never block the submit transaction itself — a missing
@@ -825,6 +839,39 @@ class VendorSignOff(Document):
 		if account:
 			comm.db_set("email_account", account.name, update_modified=False)
 		comm.send_email()
+
+	def before_cancel(self):
+		self._block_cancel_while_draft_retry_exists()
+
+	def on_trash(self):
+		self._restore_failed_status_if_retry_draft_deleted()
+
+	def _restore_failed_status_if_retry_draft_deleted(self):
+		# A retry draft set "Sign Off In Progress" when created; deleting it
+		# unsubmitted puts back the Failed status of the Sign Off it retried.
+		if self.docstatus != 0 or not self.vendor or not self._retried_failed_sign_off_still_stands():
+			return
+		if frappe.db.get_value("Supplier", self.vendor, "vendor_lifecycle_status") != VENDOR_LIFECYCLE_STATUS_SIGN_OFF_IN_PROGRESS:
+			return
+		frappe.db.set_value(
+			"Supplier", self.vendor, "vendor_lifecycle_status", self._failed_supplier_state()["vendor_lifecycle_status"]
+		)
+
+	def _block_cancel_while_draft_retry_exists(self):
+		# A submitted retry already blocks this (Frappe's own linked-document
+		# check); a draft one doesn't, and would be left pointing at a
+		# cancelled Sign Off it can then never be saved against.
+		if not self.sign_off_failed:
+			return
+		draft_retry = frappe.db.get_value(
+			"Vendor Sign Off", {"previous_failed_sign_off": self.name, "docstatus": 0}, "name"
+		)
+		if draft_retry:
+			frappe.throw(
+				frappe._("Delete the draft retry {0} before cancelling this Sign Off.").format(
+					frappe.utils.get_link_to_form(self.doctype, draft_retry)
+				)
+			)
 
 	def on_cancel(self):
 		block_if_onboarding_request_stopped(self)
@@ -945,6 +992,11 @@ class VendorSignOff(Document):
 			frappe.db.set_value("Supplier", self.vendor, "disabled", 0)
 		if not get_failed_stage_reason(kyc=self.kyc):
 			frappe.db.set_value("Supplier", self.vendor, "vendor_lifecycle_stage", VENDOR_LIFECYCLE_STAGE_ONBOARDING)
+		# Undo this Sign Off's own "Sign Off Failed" — back to whichever
+		# earlier stage last passed.
+		frappe.db.set_value(
+			"Supplier", self.vendor, "vendor_lifecycle_status", resolve_current_stage_status(kyc=self.kyc)
+		)
 
 	def _revert_vendor_status_to_last_completed_stage(self):
 		# Undoes on_submit()'s side effects — rolls vendor_lifecycle_status
@@ -998,7 +1050,17 @@ class VendorSignOff(Document):
 			# place (only the original onboarding Sign Off does that, once,
 			# at Supplier creation), so there's nothing to restore here.
 			update["is_frozen"] = 1
+		# This was the retry of a Failed Sign Off that's still submitted —
+		# the vendor goes back to exactly that Failed state.
+		if self._retried_failed_sign_off_still_stands():
+			update.update(self._failed_supplier_state())
 		frappe.db.set_value("Supplier", self.vendor, update)
+
+	def _retried_failed_sign_off_still_stands(self):
+		return bool(
+			self.previous_failed_sign_off
+			and frappe.db.get_value("Vendor Sign Off", self.previous_failed_sign_off, "docstatus") == 1
+		)
 
 
 def _current_supplier_email(supplier):

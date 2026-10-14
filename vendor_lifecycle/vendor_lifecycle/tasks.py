@@ -140,23 +140,36 @@ def auto_disable_expired_temporary_enables():
 	"""Runs at 2 AM daily (see hooks.py's "cron" scheduler_events — the
 	generic "daily" bucket doesn't let a job pick its own time). Any
 	Vendor Deboarding Checklist still flagged is_temporarily_enabled once
-	its TEMPORARY_ENABLE_DAYS grace window has actually elapsed gets its
-	Supplier disabled again and the flag cleared — ready to be temporarily
-	enabled again later if needed. A flag that's already unticked is
-	skipped outright by the filter itself; one that's ticked but still
-	within its window is left alone."""
+	its grace window (Settings' Temporary Enable Days) has actually elapsed
+	gets its Supplier disabled again and the flag cleared — ready to be
+	temporarily enabled again later if needed. A flag that's already
+	unticked is skipped outright by the filter itself; one that's ticked
+	but still within its window is left alone. A vendor already Reboarded
+	in the meantime is not disabled — only its flag is cleared."""
 	from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist.vendor_deboarding_checklist import (
-		TEMPORARY_ENABLE_DAYS,
+		get_temporary_enable_days,
 	)
+	from vendor_lifecycle.vendor_lifecycle.vendor_creation import VENDOR_LIFECYCLE_STAGE_REBOARDED
 
-	cutoff = add_to_date(now_datetime(), days=-TEMPORARY_ENABLE_DAYS)
+	cutoff = add_to_date(now_datetime(), days=-get_temporary_enable_days())
 	expired = frappe.get_all(
 		"Vendor Deboarding Checklist",
 		filters={"is_temporarily_enabled": 1, "temporarily_enabled_on": ["<=", cutoff]},
 		fields=["name", "supplier"],
 	)
+	suppliers = [row.supplier for row in expired if row.supplier]
+	reboarded = set()
+	if suppliers:
+		reboarded = set(frappe.get_all(
+			"Supplier",
+			filters={"name": ["in", suppliers], "vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_REBOARDED},
+			pluck="name",
+		))
 
 	for row in expired:
+		if row.supplier in reboarded:
+			frappe.db.set_value("Vendor Deboarding Checklist", row.name, "is_temporarily_enabled", 0)
+			continue
 		frappe.db.set_value("Supplier", row.supplier, {
 			"disabled": 1,
 			"vendor_lifecycle_status": "Disabled",

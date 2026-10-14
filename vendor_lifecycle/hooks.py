@@ -198,7 +198,10 @@ has_permission = {
 doc_events = {
 	"Supplier": {
 		"validate": "vendor_lifecycle.vendor_lifecycle.vendor_creation.validate_supplier_vendor_kyc",
-		"onload": "vendor_lifecycle.vendor_lifecycle.vendor_creation.set_supplier_disable_reason_onload",
+		"onload": [
+			"vendor_lifecycle.vendor_lifecycle.vendor_creation.set_supplier_disable_reason_onload",
+			"vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist.vendor_deboarding_checklist.set_supplier_temporary_enable_onload",
+		],
 	},
 	"Communication": {
 		"on_update": [

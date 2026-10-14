@@ -52,6 +52,8 @@ CUSTOM_FIELDS = {
 				"Re-Sampling Approved",
 				"Re-Sampling Rejected",
 				"Sign Off In Progress",
+				"Sign Off Failed",
+				"Re-Sign Off Failed",
 				"Signed",
 				"Active",
 				"Deboarding Initiated",
@@ -397,6 +399,28 @@ def create_property_setters():
 			**setter,
 		}).insert(ignore_permissions=True)
 		frappe.clear_cache(doctype=setter["doc_type"])
+
+
+def add_missing_supplier_status_options():
+	# Adds any vendor_lifecycle_status option the app now defines but the
+	# site's Custom Field doesn't have yet, in the app's order — options the
+	# site added itself are kept. For patches: create_custom_fields never
+	# updates an existing field here.
+	name = frappe.db.get_value("Custom Field", {"dt": "Supplier", "fieldname": "vendor_lifecycle_status"})
+	if not name:
+		return
+	field = frappe.get_doc("Custom Field", name)
+	current = (field.options or "").split("\n")
+	wanted = next(f for f in CUSTOM_FIELDS["Supplier"] if f["fieldname"] == "vendor_lifecycle_status")
+	options = list(current)
+	for previous, option in zip(wanted["options"].split("\n"), wanted["options"].split("\n")[1:]):
+		if option in options:
+			continue
+		position = options.index(previous) + 1 if previous in options else len(options)
+		options.insert(position, option)
+	if options != current:
+		field.options = "\n".join(options)
+		field.save()
 
 
 def grant_erpnext_permissions():

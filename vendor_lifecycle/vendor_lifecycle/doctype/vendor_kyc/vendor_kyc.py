@@ -259,10 +259,12 @@ class VendorKYC(Document):
 		# never blocks a save via the API, so PAN/Tax ID's conditional
 		# mandatory-ness (see the "Vendor KYC" doctype JSON) has to be
 		# enforced here too, same as Vendor Onboarding Request already does
-		# for its own conditional fields.
-		if self.country == "India" and not self.pan_card:
+		# for its own conditional fields. Each one is switched on/off in
+		# Vendor Lifecycle Settings.
+		settings = frappe.get_single("Vendor Lifecycle Settings")
+		if self.country == "India" and settings.require_pan_card and not self.pan_card:
 			frappe.throw(frappe._("PAN Card is mandatory."), frappe.MandatoryError)
-		if self.country != "India" and not self.tax_id:
+		if self.country != "India" and settings.require_tax_id and not self.tax_id:
 			frappe.throw(frappe._("Tax ID is mandatory."), frappe.MandatoryError)
 
 		if self.country == "India" and self.pan_card:

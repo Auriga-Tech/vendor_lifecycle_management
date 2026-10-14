@@ -169,49 +169,49 @@
    "label": "Verified by External Agency"
   },
   {
+   "depends_on": "eval:!doc.verified_by_external_agency",
    "fieldname": "verified_by",
    "fieldtype": "Table MultiSelect",
    "label": "Verified By",
-   "options": "Vendor KYC Verifier",
-   "depends_on": "eval:!doc.verified_by_external_agency"
+   "options": "Vendor KYC Verifier"
   },
   {
+   "depends_on": "eval:doc.verified_by_external_agency",
    "description": "The Supplier record for the external verification agency (must be enabled and not frozen).",
    "fieldname": "external_verification_agency",
    "fieldtype": "Link",
    "label": "External Verification Agency",
-   "options": "Supplier",
    "link_filters": "[[\"Supplier\",\"disabled\",\"=\",0],[\"Supplier\",\"is_frozen\",\"=\",0]]",
-   "depends_on": "eval:doc.verified_by_external_agency"
+   "options": "Supplier"
   },
   {
+   "depends_on": "eval:doc.verified_by_external_agency",
    "fieldname": "external_agency_contact_person",
    "fieldtype": "Data",
-   "label": "External Agency Contact Person",
-   "depends_on": "eval:doc.verified_by_external_agency"
+   "label": "External Agency Contact Person"
   },
   {
    "fieldname": "column_break_verification",
    "fieldtype": "Column Break"
   },
   {
+   "depends_on": "eval:doc.verified_by_external_agency",
    "fieldname": "external_agency_contact_number",
    "fieldtype": "Phone",
-   "label": "External Agency Contact Number",
-   "depends_on": "eval:doc.verified_by_external_agency"
+   "label": "External Agency Contact Number"
   },
   {
+   "depends_on": "eval:doc.verified_by_external_agency",
    "fieldname": "external_agency_contact_email",
    "fieldtype": "Data",
-   "options": "Email",
    "label": "External Agency Contact Email",
-   "depends_on": "eval:doc.verified_by_external_agency"
+   "options": "Email"
   },
   {
+   "depends_on": "eval:doc.verified_by_external_agency",
    "fieldname": "proof_of_visit",
    "fieldtype": "Attach",
-   "label": "Proof of Visit",
-   "depends_on": "eval:doc.verified_by_external_agency"
+   "label": "Proof of Visit"
   },
   {
    "fieldname": "section_break_firm",
@@ -278,7 +278,7 @@
    "options": "Supplier Group"
   },
   {
-   "description": "Left blank on a new KYC — doesn't inherit the site's default currency.",
+   "description": "Left blank on a new KYC \u2014 doesn't inherit the site's default currency.",
    "fieldname": "billing_currency",
    "fieldtype": "Link",
    "ignore_user_permissions": 1,
@@ -512,7 +512,7 @@
   },
   {
    "depends_on": "eval:doc.business_type",
-   "description": "Used to auto-calculate Years in Business below — that field can still be edited by hand afterward.",
+   "description": "Used to auto-calculate Years in Business below \u2014 that field can still be edited by hand afterward.",
    "fieldname": "establishment_date",
    "fieldtype": "Date",
    "label": "Establishment Date"
@@ -660,7 +660,7 @@
    "fieldname": "tax_id",
    "fieldtype": "Data",
    "label": "Tax ID (PAN / VAT / EIN, etc.)",
-   "mandatory_depends_on": "eval:doc.country!='India'"
+   "mandatory_depends_on": "eval:doc.country!='India' && frappe.boot.vendor_lifecycle_settings?.require_tax_id"
   },
   {
    "depends_on": "eval:doc.country=='India'",
@@ -668,7 +668,7 @@
    "fieldname": "pan_card",
    "fieldtype": "Data",
    "label": "PAN Card",
-   "mandatory_depends_on": "eval:doc.country=='India'"
+   "mandatory_depends_on": "eval:doc.country=='India' && frappe.boot.vendor_lifecycle_settings?.require_pan_card"
   },
   {
    "depends_on": "eval:doc.country=='India'",
@@ -930,7 +930,7 @@
    "link_fieldname": "vendor_lifecycle_source_name"
   }
  ],
- "modified": "2026-09-03 21:00:00.000000",
+ "modified": "2026-10-14 12:52:48.591881",
  "modified_by": "Administrator",
  "module": "Vendor Lifecycle",
  "name": "Vendor KYC",
@@ -976,6 +976,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],

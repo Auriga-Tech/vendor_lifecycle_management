@@ -18,4 +18,6 @@ def set_bootinfo(bootinfo):
 		"restrict_supplier_creation_to_vendor_lifecycle": cint(
 			settings.get("restrict_supplier_creation_to_vendor_lifecycle")
 		),
+		"require_pan_card": cint(settings.get("require_pan_card")),
+		"require_tax_id": cint(settings.get("require_tax_id")),
 	}

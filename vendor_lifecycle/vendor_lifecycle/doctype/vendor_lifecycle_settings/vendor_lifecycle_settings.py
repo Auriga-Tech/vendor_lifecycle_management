@@ -9,6 +9,7 @@ class VendorLifecycleSettings(Document):
 	def validate(self):
 		self._validate_reference_minimum_average_rating()
 		self._validate_email_account_required()
+		self._validate_temporary_enable_days()
 
 	def _validate_reference_minimum_average_rating(self):
 		# Optional (0/0.0 means "not set", falls back to a Rating Criteria
@@ -28,3 +29,7 @@ class VendorLifecycleSettings(Document):
 		# first email tries to go out.
 		if self.enable_vendor_lifecycle_emails and not self.vendor_lifecycle_email_account:
 			frappe.throw(frappe._("Set an Email Account before enabling Use Emails."))
+
+	def _validate_temporary_enable_days(self):
+		if (self.temporary_enable_days or 0) < 1:
+			frappe.throw(frappe._("Temporary Enable Days must be at least 1."))

@@ -168,7 +168,8 @@ frappe.ui.form.on("Vendor Deboarding Checklist", {
 		// as Vendor Deboarding Request's own Freeze/Unfreeze Supplier
 		// button: once enabled, this same button flips to "Disable
 		// Supplier" — clicking it disables the vendor right away instead
-		// of waiting out the rest of the 7-day window, and stops the
+		// of waiting out the rest of the window (Settings' Temporary Enable
+		// Days), and stops the
 		// nightly auto-disable job from doing anything further here (it
 		// only ever acts on a Checklist still flagged as temporarily
 		// enabled).
@@ -191,8 +192,9 @@ frappe.ui.form.on("Vendor Deboarding Checklist", {
 					frm.add_custom_button(__("Temporarily Enable Supplier"), () => {
 						frappe.confirm(
 							__(
-								"Temporarily enable this Supplier for 7 days? It will be automatically disabled again"
-									+ " afterward unless you disable it sooner, or repeat this."
+								"Temporarily enable this Supplier for {0} days? It will be automatically disabled again"
+									+ " afterward unless you disable it sooner, or repeat this.",
+								[info.days]
 							),
 							() => frm.call("toggle_temporary_enable").then(() => frm.reload_doc())
 						);

@@ -54,5 +54,43 @@ frappe.ui.form.on("Supplier", {
 				"red"
 			);
 		}
+
+		// Same toggle as the Vendor Deboarding Checklist's own button, acting
+		// on that same Checklist — offered here only while Deboarded,
+		// Reboarding in Process or Reboarding Failed. Info attached server-side
+		// on load (set_supplier_temporary_enable_onload), roles checked there.
+		const temporary_enable = frm.doc.__onload && frm.doc.__onload.temporary_enable;
+		if (temporary_enable) {
+			const toggle = () =>
+				frappe
+					.call({
+						method: "vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist."
+							+ "vendor_deboarding_checklist.toggle_supplier_temporary_enable",
+						args: { supplier: frm.doc.name },
+					})
+					.then(() => frm.reload_doc());
+
+			if (temporary_enable.is_temporarily_enabled) {
+				frm.add_custom_button(__("Disable Supplier"), () => {
+					frappe.confirm(
+						__("Temporarily enabled until {0}. Disable the Supplier now instead of waiting?", [
+							frappe.datetime.str_to_user(temporary_enable.expires_on),
+						]),
+						toggle
+					);
+				}).addClass("btn-danger");
+			} else {
+				frm.add_custom_button(__("Temporarily Enable Supplier"), () => {
+					frappe.confirm(
+						__(
+							"Temporarily enable this Supplier for {0} days? It will be automatically disabled again"
+								+ " afterward unless you disable it sooner, or repeat this.",
+							[temporary_enable.days]
+						),
+						toggle
+					);
+				});
+			}
+		}
 	},
 });

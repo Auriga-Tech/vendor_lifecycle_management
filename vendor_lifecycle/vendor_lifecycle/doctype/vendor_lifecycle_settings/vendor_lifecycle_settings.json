@@ -14,6 +14,8 @@
   "require_onboarding_request_for_kyc",
   "require_complete_bank_details",
   "require_complete_address_details",
+  "require_pan_card",
+  "require_tax_id",
   "stages_section",
   "background_check_mandatory",
   "reference_result_method",
@@ -26,6 +28,7 @@
   "deboarding_section",
   "default_deboarding_rating_template",
   "default_checklist_template",
+  "temporary_enable_days",
   "engagement_section",
   "enable_satisfaction_surveys",
   "survey_cadence",
@@ -492,6 +495,27 @@
    "fieldname": "require_contract_validity",
    "fieldtype": "Check",
    "label": "Require Contract Validity"
+  },
+  {
+   "default": "1",
+   "fieldname": "require_pan_card",
+   "fieldtype": "Check",
+   "label": "Require PAN Card (India)"
+  },
+  {
+   "default": "0",
+   "fieldname": "require_tax_id",
+   "fieldtype": "Check",
+   "label": "Require Tax ID (Outside India)"
+  },
+  {
+   "default": "7",
+   "description": "Days a temporarily enabled supplier stays active before it is disabled again automatically.",
+   "fieldname": "temporary_enable_days",
+   "fieldtype": "Int",
+   "label": "Temporary Enable Days",
+   "non_negative": 1,
+   "reqd": 1
   }
  ],
  "grid_page_length": 50,
@@ -499,7 +523,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-10-14 10:45:26.189680",
+ "modified": "2026-10-14 14:47:52.267547",
  "modified_by": "Administrator",
  "module": "Vendor Lifecycle",
  "name": "Vendor Lifecycle Settings",
