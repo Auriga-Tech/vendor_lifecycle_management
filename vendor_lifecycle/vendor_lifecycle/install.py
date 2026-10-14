@@ -54,7 +54,6 @@ def before_migrate():
 	# warning on this exact run, one time, before after_migrate() ever
 	# gets a chance to clean it up.
 	remove_stale_module_directory("number_card", "vendors_through_app")
-	remove_support_ticket_directories()
 
 
 def rename_license_template_doctype():
@@ -198,7 +197,6 @@ def after_migrate():
 	remove_stale_setting("disable_timing")
 	remove_stale_setting("deboarding_notification_provider")
 	remove_stale_number_card("Vendors Through App")
-	remove_support_ticket_feature()
 
 
 # Business Types considered "service nature", plus "Other" (too ambiguous to
@@ -334,94 +332,6 @@ def remove_stale_module_directory(subfolder, name):
 	path = frappe.get_app_path("vendor_lifecycle", "vendor_lifecycle", subfolder, name)
 	if os.path.isdir(path):
 		shutil.rmtree(path)
-
-
-# Vendor Support Ticket was removed as a feature. Its standard records
-# (DocType, Report) are cleaned up by migrate's own orphan steps, but its
-# Number Cards, Dashboard Charts, Chart Sources, Email Templates, Supplier
-# connection link, timeline/email history, Trash entries, Settings values
-# and the table itself are not - every one of them is removed here. Safe
-# to run on every migrate: each delete is a no-op once nothing is left.
-SUPPORT_TICKET_DOCTYPE = "Vendor Support Ticket"
-SUPPORT_TICKET_RECORDS = {
-	"Number Card": ["Open Support Tickets", "Tickets In Progress", "High Priority Open Tickets"],
-	"Dashboard Chart": ["Support Tickets Trend", "Support Tickets by Status", "Support Tickets by Priority"],
-	"Dashboard Chart Source": ["Support Tickets by Status", "Support Tickets by Priority"],
-	"Email Template": [
-		"Vendor Support Ticket Created",
-		"Vendor Support Ticket New Ticket Alert",
-		"Vendor Support Ticket Resolved",
-		"Vendor Support Ticket Reopened",
-		"Vendor Support Ticket Escalation",
-	],
-}
-SUPPORT_TICKET_DIRECTORIES = [
-	("vendor_lifecycle", "doctype", "vendor_support_ticket"),
-	("vendor_lifecycle", "report", "vendor_support_ticket_aging"),
-	("vendor_lifecycle", "number_card", "open_support_tickets"),
-	("vendor_lifecycle", "number_card", "tickets_in_progress"),
-	("vendor_lifecycle", "number_card", "high_priority_open_tickets"),
-	("vendor_lifecycle", "dashboard_chart", "support_tickets_trend"),
-	("vendor_lifecycle", "dashboard_chart", "support_tickets_by_status"),
-	("vendor_lifecycle", "dashboard_chart", "support_tickets_by_priority"),
-	("vendor_lifecycle", "dashboard_chart_source", "support_tickets_by_status"),
-	("vendor_lifecycle", "dashboard_chart_source", "support_tickets_by_priority"),
-	("www", "vst_list"),
-	("www", "vst_new"),
-	("www", "vst_detail"),
-]
-
-
-def remove_support_ticket_directories():
-	# Same reason as remove_stale_module_directory above - git leaves the
-	# untracked __pycache__ behind in an existing checkout, so the folder
-	# survives and dashboard sync keeps looking for its missing .json.
-	for parts in SUPPORT_TICKET_DIRECTORIES:
-		path = frappe.get_app_path("vendor_lifecycle", *parts)
-		if os.path.isdir(path):
-			shutil.rmtree(path)
-
-
-def remove_support_ticket_feature():
-	dt = SUPPORT_TICKET_DOCTYPE
-
-	for doctype, names in SUPPORT_TICKET_RECORDS.items():
-		_delete_with_children(doctype, {"name": ["in", names]})
-
-	frappe.db.delete("DocType Link", {"parent": "Supplier", "link_doctype": dt})
-	frappe.db.delete("Portal Menu Item", {"reference_doctype": dt})
-	remove_stale_setting("support_ticket_emails")
-	remove_stale_setting("support_ticket_escalation_emails")
-
-	# File.on_trash removes the file from disk only when no other File
-	# record still points at it.
-	for file_name in frappe.get_all("File", {"attached_to_doctype": dt}, pluck="name"):
-		frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
-
-	_delete_with_children("Communication", {"reference_doctype": dt})
-	frappe.db.delete("Communication Link", {"link_doctype": dt})
-	_delete_with_children("Email Queue", {"reference_doctype": dt})
-	frappe.db.delete("Comment", {"reference_doctype": dt})
-	frappe.db.delete("Version", {"ref_doctype": dt})
-	frappe.db.delete("Activity Log", {"reference_doctype": dt})
-	frappe.db.delete("Error Log", {"reference_doctype": dt})
-	frappe.db.delete("ToDo", {"reference_type": dt})
-	frappe.db.delete("DocShare", {"share_doctype": dt})
-	frappe.db.delete("Deleted Document", {"deleted_doctype": dt})
-	frappe.db.delete("__UserSettings", {"doctype": dt})
-
-	# Last - DDL commits implicitly.
-	if frappe.db.table_exists(dt):
-		frappe.db.sql_ddl(f"drop table `tab{dt}`")
-
-
-def _delete_with_children(doctype, filters):
-	names = frappe.get_all(doctype, filters, pluck="name")
-	if not names:
-		return
-	for table in frappe.get_meta(doctype).get_table_fields():
-		frappe.db.delete(table.options, {"parenttype": doctype, "parent": ["in", names]})
-	frappe.db.delete(doctype, {"name": ["in", names]})
 
 
 # Sample/prototype only, proving out the Getting Started mechanism before
