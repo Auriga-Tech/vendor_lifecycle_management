@@ -1,31 +1,10 @@
 {
  "cards": [
   {
-   "card": "Open Support Tickets"
-  },
-  {
-   "card": "Tickets In Progress"
-  },
-  {
-   "card": "High Priority Open Tickets"
-  },
-  {
    "card": "Draft Satisfaction Surveys"
   }
  ],
  "charts": [
-  {
-   "chart": "Support Tickets Trend",
-   "width": "Full"
-  },
-  {
-   "chart": "Support Tickets by Status",
-   "width": "Half"
-  },
-  {
-   "chart": "Support Tickets by Priority",
-   "width": "Half"
-  },
   {
    "chart": "Satisfaction Surveys by Status",
    "width": "Full"
@@ -38,7 +17,7 @@
  "idx": 0,
  "is_default": 0,
  "is_standard": 1,
- "modified": "2026-09-08 19:00:00.000000",
+ "modified": "2026-10-14 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Vendor Lifecycle",
  "name": "Vendor Engagement",

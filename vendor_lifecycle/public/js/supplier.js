@@ -14,7 +14,6 @@ frappe.ui.form.on("Supplier", {
 			"Vendor Sampling Evaluation",
 			"Vendor Sign Off",
 			"Vendor Satisfaction Survey",
-			"Vendor Support Ticket",
 			"Vendor Deboarding Request",
 			"Vendor Deboarding Checklist",
 			"Vendor Reboarding Request",

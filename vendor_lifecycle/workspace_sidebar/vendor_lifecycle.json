@@ -184,18 +184,6 @@
    "type": "Link"
   },
   {
-   "child": 1,
-   "collapsible": 1,
-   "icon": "",
-   "indent": 0,
-   "keep_closed": 0,
-   "label": "Vendor Support Ticket",
-   "link_to": "Vendor Support Ticket",
-   "link_type": "DocType",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
    "child": 0,
    "collapsible": 1,
    "icon": "settings",
@@ -331,18 +319,6 @@
    "icon": "",
    "indent": 0,
    "keep_closed": 0,
-   "label": "Vendor Support Ticket Aging",
-   "link_to": "Vendor Support Ticket Aging",
-   "link_type": "Report",
-   "show_arrow": 0,
-   "type": "Link"
-  },
-  {
-   "child": 1,
-   "collapsible": 1,
-   "icon": "",
-   "indent": 0,
-   "keep_closed": 0,
    "label": "Vendors Due for Re-Audit",
    "link_to": "Vendors Due for Re-Audit",
    "link_type": "Report",
@@ -421,7 +397,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-20 02:27:47.693715",
+ "modified": "2026-10-14 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Vendor Lifecycle",
  "module_onboarding": "Vendor Lifecycle Onboarding",

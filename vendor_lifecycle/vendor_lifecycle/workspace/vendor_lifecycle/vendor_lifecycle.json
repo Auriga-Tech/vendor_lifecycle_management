@@ -160,17 +160,6 @@
    "type": "Link"
   },
   {
-   "dependencies": "",
-   "hidden": 0,
-   "is_query_report": 0,
-   "label": "Vendor Support Ticket",
-   "link_count": 0,
-   "link_to": "Vendor Support Ticket",
-   "link_type": "DocType",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor Lifecycle Reports",
@@ -218,17 +207,6 @@
    "label": "Vendors Due for Re-Audit",
    "link_count": 0,
    "link_to": "Vendors Due for Re-Audit",
-   "link_type": "Report",
-   "onboard": 0,
-   "type": "Link"
-  },
-  {
-   "dependencies": "",
-   "hidden": 0,
-   "is_query_report": 1,
-   "label": "Vendor Support Ticket Aging",
-   "link_count": 0,
-   "link_to": "Vendor Support Ticket Aging",
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"
@@ -492,7 +470,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-09-20 16:30:00.000000",
+ "modified": "2026-10-14 11:00:00.000000",
  "modified_by": "Administrator",
  "module": "Vendor Lifecycle",
  "name": "Vendor Lifecycle",

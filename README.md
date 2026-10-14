@@ -37,10 +37,9 @@ Sign-off is the final gate — contract and code of conduct sent and collected b
 ![Vendor Sign Off form, with the Retry Sign-off button](docs/screenshots/vendor_sign_off.png?v=ff55a68)
 ![Vendor KYC Create dropdown offering Retry Sign-off](docs/screenshots/vendor_kyc_create_dropdown.png?v=ff55a68)
 
-**Ongoing Engagement.** Once active, Satisfaction Surveys are auto-created per vendor on a configurable cadence, and vendors (or staff) can raise Support Tickets with priority-based escalation — both reachable by vendors through a login-gated portal, with no Desk access needed:
+**Ongoing Engagement.** Once active, Satisfaction Surveys are auto-created per vendor on a configurable cadence — reachable by vendors through a login-gated portal, with no Desk access needed:
 
 ![Vendor Satisfaction Survey](docs/screenshots/vendor_satisfaction_survey.png?v=ff55a68)
-![Vendor Support Ticket](docs/screenshots/vendor_support_ticket.png?v=ff55a68)
 
 **Deboarding.** A Vendor Deboarding Request captures the reason and a ratings review, with live visibility into any open Purchase Orders or unpaid invoices before it's approved:
 
@@ -78,7 +77,6 @@ Once approved, a configurable Vendor Deboarding Checklist walks the closure thro
 | Onboarding | Vendor Sampling Evaluation | Hands-on sample evaluation; mandatory only for configured Business Types; also usable standalone as an Ad-hoc re-check. |
 | Onboarding | Vendor Sign Off | Final activation gate; supports a linked retry after a Failed outcome; also usable standalone as a periodic Renewal. |
 | Ongoing Engagement | Vendor Satisfaction Survey | Auto-created per active vendor on a configurable cadence. |
-| Ongoing Engagement | Vendor Support Ticket | Vendor/staff-raised issues, with priority-based escalation. |
 | Deboarding | Vendor Deboarding Request | Reason + ratings review; approve/reject gate. |
 | Deboarding | Vendor Deboarding Checklist | Offboarding task list; disables the Supplier on submit; also drives the time-boxed temporary-enable toggle. |
 | Deboarding | Vendor Deboarding Checklist Template | Configurable offboarding task set a Checklist is built from. |
@@ -103,7 +101,7 @@ Once approved, a configurable Vendor Deboarding Checklist walks the closure thro
 
 ## Reporting
 
-Five built-in reports: **Vendor Onboarding Pipeline** (every vendor's status across all four stages in one table, viewable by Onboarding Request or by KYC), **Vendor Reboarding Pipeline**, **Vendor Deboarding Pipeline**, **Vendor Support Ticket Aging**, and **Vendors Due for Re-Audit**. Four dashboards (cards + charts) cover Onboarding, Reboarding, Ongoing Engagement, and Deboarding. Anything beyond these — cross-vendor trend analysis over time, for example — needs a custom report, same as any Frappe app.
+Four built-in reports: **Vendor Onboarding Pipeline** (every vendor's status across all four stages in one table, viewable by Onboarding Request or by KYC), **Vendor Reboarding Pipeline**, **Vendor Deboarding Pipeline**, and **Vendors Due for Re-Audit**. Four dashboards (cards + charts) cover Onboarding, Reboarding, Ongoing Engagement, and Deboarding. Anything beyond these — cross-vendor trend analysis over time, for example — needs a custom report, same as any Frappe app.
 
 ## Compatibility
 
@@ -114,7 +112,6 @@ Tested against **Frappe 16 / ERPNext 16**. Not verified against v14 or v15. The 
 - **No standalone shortcut to just re-enable a deboarded vendor.** The only ways back today are the full Vendor Reboarding Request (re-running mandatory stages) or the Deboarding Checklist's time-boxed "Temporarily Enable Supplier" toggle — there's no in-between "flip it back on" option.
 - **No multi-company scoping decided yet** — whether vendor lifecycle status and enforcement should apply per Company, or stay global across companies on a multi-company site, is still open.
 - **Onboarding-stage emails aren't threaded** into one conversation — each stage's email arrives separately in the vendor's inbox.
-- **No Desk-side visibility for Support Ticket conversations** beyond the description field — a reply-thread feature was built once, found to only be visible from the vendor's own portal, and reverted pending a redesign.
 
 ## Install
 

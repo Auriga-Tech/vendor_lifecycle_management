@@ -21,7 +21,6 @@ def execute():
 		backfill_default_signoff_failed_email_template,
 		backfill_default_vendor_lifecycle_stage_email_templates,
 		backfill_default_satisfaction_survey_email_templates,
-		backfill_default_support_ticket_email_templates,
 		backfill_default_deboarding_request_email_templates,
 		backfill_default_checklist_task_email_templates,
 		backfill_default_clearance_certificate_email_templates,
@@ -35,7 +34,6 @@ def execute():
 	backfill_default_signoff_failed_email_template()
 	backfill_default_vendor_lifecycle_stage_email_templates()
 	backfill_default_satisfaction_survey_email_templates()
-	backfill_default_support_ticket_email_templates()
 	backfill_default_deboarding_request_email_templates()
 	backfill_default_checklist_task_email_templates()
 	backfill_default_clearance_certificate_email_templates()

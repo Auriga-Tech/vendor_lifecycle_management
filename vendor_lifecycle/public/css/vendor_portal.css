@@ -1,4 +1,4 @@
-/* Vendor Lifecycle — shared vendor portal styling (Satisfaction Survey / Support Ticket) */
+/* Vendor Lifecycle — shared vendor portal styling (Satisfaction Survey) */
 
 :root {
 	--vl-primary: #2c5cc5;
@@ -263,7 +263,7 @@
 	text-decoration: none;
 }
 
-/* Form (new ticket, ratings, etc.) */
+/* Form (ratings, etc.) */
 .vl-form-card {
 	background: #fff;
 	border: 1px solid var(--vl-border);

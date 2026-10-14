@@ -14,16 +14,6 @@ CADENCE_DAYS = {
 FIRST_REMINDER_AFTER_DAYS = 7
 REMINDER_REPEAT_DAYS = 30
 
-# Priority-based escalation cadence for a stale support ticket — a High
-# priority ticket that's been sitting untouched deserves a much faster
-# nudge to staff than a Low one. (days after opened_on, then repeat every
-# this many days for as long as it stays Open/Reopened.)
-SUPPORT_TICKET_ESCALATION_DAYS = {
-	"High": 1,
-	"Medium": 3,
-	"Low": 7,
-}
-
 
 def create_pending_satisfaction_surveys():
 	"""Daily scheduler job: for every enabled, non-frozen Supplier without a
@@ -144,77 +134,6 @@ def send_satisfaction_survey_reminders():
 			)
 
 	return reminded
-
-
-def send_support_ticket_escalations():
-	"""Daily scheduler job: nudge the internal team about a support ticket
-	that's sitting untouched — only while it's Open or Reopened (paused
-	once someone's replied and it moves to In Progress, or once it's
-	Resolved/Closed). Cadence depends on Priority (see
-	SUPPORT_TICKET_ESCALATION_DAYS) — High gets escalated far sooner and
-	more often than Low."""
-	from vendor_lifecycle.vendor_lifecycle.doctype.vendor_support_ticket.vendor_support_ticket import (
-		DEFAULT_SUPPORT_TICKET_ESCALATION_EMAIL_TEMPLATE,
-		get_ticket_portal_link,
-		get_ticket_vendor_contact,
-	)
-	from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
-		resolve_vendor_lifecycle_company_name,
-		send_vendor_lifecycle_email,
-		vendor_lifecycle_emails_enabled,
-		vendor_lifecycle_manager_emails,
-	)
-
-	settings = frappe.get_single("Vendor Lifecycle Settings")
-	if not vendor_lifecycle_emails_enabled(settings):
-		return []
-
-	recipients = vendor_lifecycle_manager_emails()
-	if not recipients:
-		return []
-
-	today = getdate(nowdate())
-	stale_candidates = frappe.get_all(
-		"Vendor Support Ticket",
-		filters={"status": ["in", ("Open", "Reopened")]},
-		fields=["name", "vendor", "subject", "priority", "opened_on", "last_reminder_sent"],
-	)
-
-	escalated = []
-	for ticket in stale_candidates:
-		interval = SUPPORT_TICKET_ESCALATION_DAYS.get(ticket.priority, 3)
-		due_on = (
-			add_days(getdate(ticket.last_reminder_sent), interval)
-			if ticket.last_reminder_sent
-			else add_days(getdate(ticket.opened_on), interval)
-		)
-		if due_on > today:
-			continue
-
-		try:
-			contact = get_ticket_vendor_contact(ticket.vendor)
-			send_vendor_lifecycle_email(
-				doctype="Vendor Support Ticket",
-				name=ticket.name,
-				template_name=DEFAULT_SUPPORT_TICKET_ESCALATION_EMAIL_TEMPLATE,
-				context={
-					"firm_name": contact.get("firm_name"),
-					"company_name": resolve_vendor_lifecycle_company_name(),
-					"ticket_name": ticket.name,
-					"subject": ticket.subject,
-					"priority": ticket.priority,
-					"ticket_link": get_ticket_portal_link(ticket.name),
-				},
-				recipients=recipients,
-			)
-			frappe.db.set_value("Vendor Support Ticket", ticket.name, "last_reminder_sent", today)
-			escalated.append(ticket.name)
-		except Exception:
-			frappe.log_error(
-				title="Vendor Support Ticket: failed to send escalation email", message=frappe.get_traceback()
-			)
-
-	return escalated
 
 
 def auto_disable_expired_temporary_enables():

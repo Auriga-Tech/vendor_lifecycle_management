@@ -771,7 +771,6 @@ DOCTYPE_EMAIL_SETTINGS_FIELD = {
 	"Vendor Reboarding Request": "reboarding_request_emails",
 	"Vendor Deboarding Checklist": "deboarding_checklist_emails",
 	"Vendor Satisfaction Survey": "satisfaction_survey_emails",
-	"Vendor Support Ticket": "support_ticket_emails",
 }
 
 # A handful of emails are scheduled "nag" reminders rather than their
@@ -785,7 +784,6 @@ REMINDER_EMAIL_SETTINGS_FIELD = {
 	"Vendor Deboarding Checklist Task Reminder": "deboarding_checklist_task_reminder_emails",
 	"Vendor Deboarding Clearance Certificate Follow-up": "deboarding_checklist_clearance_followup_emails",
 	"Vendor Satisfaction Survey Reminder": "satisfaction_survey_reminder_emails",
-	"Vendor Support Ticket Escalation": "support_ticket_escalation_emails",
 	"Compliance Audit Renewal Due": "compliance_audit_renewal_due_emails",
 	"Compliance Audit Renewal Draft Reminder": "compliance_audit_renewal_draft_reminder_emails",
 	"Sign Off Renewal Due": "signoff_renewal_due_emails",

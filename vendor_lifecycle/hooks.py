@@ -97,11 +97,11 @@ doctype_list_js = {"Supplier": "public/js/supplier_list.js"}
 # 	"Role": "home_page"
 # }
 
-# Vendor-facing Supplier Portal pages — Vendor Satisfaction Survey / Vendor
-# Support Ticket, deliberately built as plain www/ pages (not Web Forms) so
-# they live inside the normal portal (sidebar-visible, alongside a vendor's
-# other records) rather than as a standalone form. Both doctypes' lists are
-# hand-built (www/vss_list, www/vst_list) for a proper server-rendered table
+# Vendor-facing Supplier Portal pages — Vendor Satisfaction Survey,
+# deliberately built as plain www/ pages (not Web Forms) so they live
+# inside the normal portal (sidebar-visible, alongside a vendor's other
+# records) rather than as a standalone form. The list is hand-built
+# (www/vss_list) for a proper server-rendered table
 # with a Status column — Frappe's generic doctype-name list route is
 # AJAX-driven and renders no data on first load, which is why it looked
 # broken/empty. Satisfaction Survey has no vendor-facing create page — a
@@ -118,13 +118,6 @@ website_route_rules = [
 		"to_route": "vss_detail",
 		"defaults": {"doctype": "Vendor Satisfaction Survey"},
 	},
-	{"from_route": "/vendor-support-tickets", "to_route": "vst_list"},
-	{"from_route": "/vendor-support-tickets/new", "to_route": "vst_new"},
-	{
-		"from_route": "/vendor-support-tickets/<path:name>",
-		"to_route": "vst_detail",
-		"defaults": {"doctype": "Vendor Support Ticket"},
-	},
 ]
 
 standard_portal_menu_items = [
@@ -132,12 +125,6 @@ standard_portal_menu_items = [
 		"title": "Satisfaction Surveys",
 		"route": "/vendor-satisfaction-surveys",
 		"reference_doctype": "Vendor Satisfaction Survey",
-		"role": "Supplier",
-	},
-	{
-		"title": "Support Tickets",
-		"route": "/vendor-support-tickets",
-		"reference_doctype": "Vendor Support Ticket",
 		"role": "Supplier",
 	},
 ]
@@ -212,12 +199,10 @@ after_migrate = "vendor_lifecycle.vendor_lifecycle.install.after_migrate"
 
 permission_query_conditions = {
 	"Vendor Satisfaction Survey": "vendor_lifecycle.vendor_lifecycle.permissions.vendor_satisfaction_survey_query_conditions",
-	"Vendor Support Ticket": "vendor_lifecycle.vendor_lifecycle.permissions.vendor_support_ticket_query_conditions",
 }
 
 has_permission = {
 	"Vendor Satisfaction Survey": "vendor_lifecycle.vendor_lifecycle.permissions.vendor_satisfaction_survey_has_permission",
-	"Vendor Support Ticket": "vendor_lifecycle.vendor_lifecycle.permissions.vendor_support_ticket_has_permission",
 }
 
 # Document Events
@@ -250,7 +235,6 @@ scheduler_events = {
 	"daily": [
 		"vendor_lifecycle.vendor_lifecycle.tasks.create_pending_satisfaction_surveys",
 		"vendor_lifecycle.vendor_lifecycle.tasks.send_satisfaction_survey_reminders",
-		"vendor_lifecycle.vendor_lifecycle.tasks.send_support_ticket_escalations",
 		"vendor_lifecycle.vendor_lifecycle.tasks.send_checklist_assignment_reminders",
 		"vendor_lifecycle.vendor_lifecycle.tasks.send_deboarding_checklist_followups",
 		"vendor_lifecycle.vendor_lifecycle.tasks.send_signoff_followups",

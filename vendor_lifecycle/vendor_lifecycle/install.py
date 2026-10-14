@@ -54,6 +54,7 @@ def before_migrate():
 	# warning on this exact run, one time, before after_migrate() ever
 	# gets a chance to clean it up.
 	remove_stale_module_directory("number_card", "vendors_through_app")
+	remove_support_ticket_directories()
 
 
 def rename_license_template_doctype():
@@ -197,7 +198,7 @@ def after_migrate():
 	remove_stale_setting("disable_timing")
 	remove_stale_setting("deboarding_notification_provider")
 	remove_stale_number_card("Vendors Through App")
-	backfill_ticket_resolved_on()
+	remove_support_ticket_feature()
 
 
 # Business Types considered "service nature", plus "Other" (too ambiguous to
@@ -333,6 +334,94 @@ def remove_stale_module_directory(subfolder, name):
 	path = frappe.get_app_path("vendor_lifecycle", "vendor_lifecycle", subfolder, name)
 	if os.path.isdir(path):
 		shutil.rmtree(path)
+
+
+# Vendor Support Ticket was removed as a feature. Its standard records
+# (DocType, Report) are cleaned up by migrate's own orphan steps, but its
+# Number Cards, Dashboard Charts, Chart Sources, Email Templates, Supplier
+# connection link, timeline/email history, Trash entries, Settings values
+# and the table itself are not - every one of them is removed here. Safe
+# to run on every migrate: each delete is a no-op once nothing is left.
+SUPPORT_TICKET_DOCTYPE = "Vendor Support Ticket"
+SUPPORT_TICKET_RECORDS = {
+	"Number Card": ["Open Support Tickets", "Tickets In Progress", "High Priority Open Tickets"],
+	"Dashboard Chart": ["Support Tickets Trend", "Support Tickets by Status", "Support Tickets by Priority"],
+	"Dashboard Chart Source": ["Support Tickets by Status", "Support Tickets by Priority"],
+	"Email Template": [
+		"Vendor Support Ticket Created",
+		"Vendor Support Ticket New Ticket Alert",
+		"Vendor Support Ticket Resolved",
+		"Vendor Support Ticket Reopened",
+		"Vendor Support Ticket Escalation",
+	],
+}
+SUPPORT_TICKET_DIRECTORIES = [
+	("vendor_lifecycle", "doctype", "vendor_support_ticket"),
+	("vendor_lifecycle", "report", "vendor_support_ticket_aging"),
+	("vendor_lifecycle", "number_card", "open_support_tickets"),
+	("vendor_lifecycle", "number_card", "tickets_in_progress"),
+	("vendor_lifecycle", "number_card", "high_priority_open_tickets"),
+	("vendor_lifecycle", "dashboard_chart", "support_tickets_trend"),
+	("vendor_lifecycle", "dashboard_chart", "support_tickets_by_status"),
+	("vendor_lifecycle", "dashboard_chart", "support_tickets_by_priority"),
+	("vendor_lifecycle", "dashboard_chart_source", "support_tickets_by_status"),
+	("vendor_lifecycle", "dashboard_chart_source", "support_tickets_by_priority"),
+	("www", "vst_list"),
+	("www", "vst_new"),
+	("www", "vst_detail"),
+]
+
+
+def remove_support_ticket_directories():
+	# Same reason as remove_stale_module_directory above - git leaves the
+	# untracked __pycache__ behind in an existing checkout, so the folder
+	# survives and dashboard sync keeps looking for its missing .json.
+	for parts in SUPPORT_TICKET_DIRECTORIES:
+		path = frappe.get_app_path("vendor_lifecycle", *parts)
+		if os.path.isdir(path):
+			shutil.rmtree(path)
+
+
+def remove_support_ticket_feature():
+	dt = SUPPORT_TICKET_DOCTYPE
+
+	for doctype, names in SUPPORT_TICKET_RECORDS.items():
+		_delete_with_children(doctype, {"name": ["in", names]})
+
+	frappe.db.delete("DocType Link", {"parent": "Supplier", "link_doctype": dt})
+	frappe.db.delete("Portal Menu Item", {"reference_doctype": dt})
+	remove_stale_setting("support_ticket_emails")
+	remove_stale_setting("support_ticket_escalation_emails")
+
+	# File.on_trash removes the file from disk only when no other File
+	# record still points at it.
+	for file_name in frappe.get_all("File", {"attached_to_doctype": dt}, pluck="name"):
+		frappe.delete_doc("File", file_name, force=True, ignore_permissions=True)
+
+	_delete_with_children("Communication", {"reference_doctype": dt})
+	frappe.db.delete("Communication Link", {"link_doctype": dt})
+	_delete_with_children("Email Queue", {"reference_doctype": dt})
+	frappe.db.delete("Comment", {"reference_doctype": dt})
+	frappe.db.delete("Version", {"ref_doctype": dt})
+	frappe.db.delete("Activity Log", {"reference_doctype": dt})
+	frappe.db.delete("Error Log", {"reference_doctype": dt})
+	frappe.db.delete("ToDo", {"reference_type": dt})
+	frappe.db.delete("DocShare", {"share_doctype": dt})
+	frappe.db.delete("Deleted Document", {"deleted_doctype": dt})
+	frappe.db.delete("__UserSettings", {"doctype": dt})
+
+	# Last - DDL commits implicitly.
+	if frappe.db.table_exists(dt):
+		frappe.db.sql_ddl(f"drop table `tab{dt}`")
+
+
+def _delete_with_children(doctype, filters):
+	names = frappe.get_all(doctype, filters, pluck="name")
+	if not names:
+		return
+	for table in frappe.get_meta(doctype).get_table_fields():
+		frappe.db.delete(table.options, {"parenttype": doctype, "parent": ["in", names]})
+	frappe.db.delete(doctype, {"name": ["in", names]})
 
 
 # Sample/prototype only, proving out the Getting Started mechanism before
@@ -1226,8 +1315,6 @@ SETTINGS_FIELD_DEFAULTS = {
 	"deboarding_checklist_clearance_followup_emails": 1,
 	"satisfaction_survey_emails": 1,
 	"satisfaction_survey_reminder_emails": 1,
-	"support_ticket_emails": 1,
-	"support_ticket_escalation_emails": 1,
 	"compliance_audit_renewal_due_emails": 1,
 	"compliance_audit_renewal_draft_reminder_emails": 1,
 	"signoff_renewal_due_emails": 1,
@@ -1308,24 +1395,6 @@ def backfill_default_satisfaction_rating_template():
 		frappe.db.set_single_value(
 			"Vendor Lifecycle Settings", "default_rating_template", DEFAULT_SATISFACTION_RATING_TEMPLATE
 		)
-
-
-def backfill_ticket_resolved_on():
-	# resolved_on is new — an existing ticket already sitting in Resolved
-	# never had it set by mark_resolved() at the time. Its own `modified`
-	# is the best available stand-in (not exact, but close enough for an
-	# aging report — the alternative, leaving it blank, would make the
-	# report keep counting these up to today forever, exactly the bug
-	# this field exists to fix).
-	if not frappe.db.has_column("Vendor Support Ticket", "resolved_on"):
-		return
-	frappe.db.sql(
-		"""
-		update `tabVendor Support Ticket`
-		set resolved_on = modified
-		where status = 'Resolved' and resolved_on is null
-		"""
-	)
 
 
 def backfill_missing_compliance_check_template():
@@ -2044,92 +2113,6 @@ def backfill_default_satisfaction_survey_email_templates():
 			"name": DEFAULT_SATISFACTION_SURVEY_REMINDER_EMAIL_TEMPLATE,
 			"subject": "Reminder: Satisfaction Survey Pending — {{ survey_name }}",
 			"response": _signoff_email_shell(VENDOR_LIFECYCLE_INTERNAL_ACCENT, "Reminder", "Survey Still Pending", body),
-		}).insert(ignore_permissions=True)
-
-
-DEFAULT_SUPPORT_TICKET_CREATED_EMAIL_TEMPLATE = "Vendor Support Ticket Created"
-DEFAULT_SUPPORT_TICKET_NEW_TICKET_ALERT_EMAIL_TEMPLATE = "Vendor Support Ticket New Ticket Alert"
-DEFAULT_SUPPORT_TICKET_RESOLVED_EMAIL_TEMPLATE = "Vendor Support Ticket Resolved"
-DEFAULT_SUPPORT_TICKET_REOPENED_EMAIL_TEMPLATE = "Vendor Support Ticket Reopened"
-DEFAULT_SUPPORT_TICKET_ESCALATION_EMAIL_TEMPLATE = "Vendor Support Ticket Escalation"
-
-
-def backfill_default_support_ticket_email_templates():
-	# Referenced directly by name in vendor_support_ticket.py / tasks.py,
-	# not a Settings field — same "hardcoded, backfilled once" convention
-	# as every other Vendor Lifecycle template. A deployment is free to
-	# edit any of these afterward.
-	if not frappe.db.exists("Email Template", DEFAULT_SUPPORT_TICKET_CREATED_EMAIL_TEMPLATE):
-		body = (
-			"<p>Dear {{ contact_person_name or firm_name }},</p>"
-			"<p>We've received your support ticket <b>{{ ticket_name }}</b>: \"{{ subject }}\""
-			" (Priority: {{ priority }}).</p>"
-			'<p><a href="{{ ticket_link }}">View the ticket</a> to track its progress or add more details.</p>'
-			"<p>Thank you,<br>{{ company_name }}</p>"
-		)
-		frappe.get_doc({
-			"doctype": "Email Template",
-			"name": DEFAULT_SUPPORT_TICKET_CREATED_EMAIL_TEMPLATE,
-			"subject": "We've Received Your Ticket — {{ ticket_name }}",
-			"response": _signoff_email_shell(SIGNOFF_RECEIVED_ACCENT, "Received", "Ticket Received", body),
-		}).insert(ignore_permissions=True)
-
-	if not frappe.db.exists("Email Template", DEFAULT_SUPPORT_TICKET_RESOLVED_EMAIL_TEMPLATE):
-		body = (
-			"<p>Dear {{ contact_person_name or firm_name }},</p>"
-			"<p>Your support ticket <b>{{ ticket_name }}</b>: \"{{ subject }}\" has been resolved.</p>"
-			+ _info_box(SIGNOFF_PASSED_ACCENT, "{{ resolution }}")
-			+ '<p><a href="{{ ticket_link }}">View the ticket</a> — close it if you\'re satisfied, or reopen it'
-			" if it isn't actually fixed.</p>"
-			"<p>Thank you,<br>{{ company_name }}</p>"
-		)
-		frappe.get_doc({
-			"doctype": "Email Template",
-			"name": DEFAULT_SUPPORT_TICKET_RESOLVED_EMAIL_TEMPLATE,
-			"subject": "Your Ticket Has Been Resolved — {{ ticket_name }}",
-			"response": _signoff_email_shell(SIGNOFF_PASSED_ACCENT, "Resolved", "Ticket Resolved", body),
-		}).insert(ignore_permissions=True)
-
-	if not frappe.db.exists("Email Template", DEFAULT_SUPPORT_TICKET_REOPENED_EMAIL_TEMPLATE):
-		body = (
-			"<p>Hello,</p>"
-			"<p>Support ticket <b>{{ ticket_name }}</b>: \"{{ subject }}\" for <b>{{ firm_name }}</b> has been"
-			" reopened by the vendor.</p>"
-			'<p><a href="{{ ticket_link }}">View the ticket</a> and follow up.</p>'
-		)
-		frappe.get_doc({
-			"doctype": "Email Template",
-			"name": DEFAULT_SUPPORT_TICKET_REOPENED_EMAIL_TEMPLATE,
-			"subject": "Ticket Reopened — {{ ticket_name }}",
-			"response": _signoff_email_shell(VENDOR_LIFECYCLE_INTERNAL_ACCENT, "Action Needed", "Ticket Reopened", body),
-		}).insert(ignore_permissions=True)
-
-	if not frappe.db.exists("Email Template", DEFAULT_SUPPORT_TICKET_NEW_TICKET_ALERT_EMAIL_TEMPLATE):
-		body = (
-			"<p>Hello,</p>"
-			"<p><b>{{ firm_name }}</b> has filed a new support ticket <b>{{ ticket_name }}</b>: \"{{ subject }}\""
-			" (Priority: {{ priority }}).</p>"
-			'<p><a href="{{ ticket_link }}">View the ticket</a> and follow up.</p>'
-		)
-		frappe.get_doc({
-			"doctype": "Email Template",
-			"name": DEFAULT_SUPPORT_TICKET_NEW_TICKET_ALERT_EMAIL_TEMPLATE,
-			"subject": "New Support Ticket — {{ ticket_name }}",
-			"response": _signoff_email_shell(VENDOR_LIFECYCLE_INTERNAL_ACCENT, "Action Needed", "New Support Ticket", body),
-		}).insert(ignore_permissions=True)
-
-	if not frappe.db.exists("Email Template", DEFAULT_SUPPORT_TICKET_ESCALATION_EMAIL_TEMPLATE):
-		body = (
-			"<p>Hello,</p>"
-			"<p>Support ticket <b>{{ ticket_name }}</b>: \"{{ subject }}\" for <b>{{ firm_name }}</b>"
-			" (Priority: {{ priority }}) has been sitting without a response.</p>"
-			'<p><a href="{{ ticket_link }}">View the ticket</a> and follow up.</p>'
-		)
-		frappe.get_doc({
-			"doctype": "Email Template",
-			"name": DEFAULT_SUPPORT_TICKET_ESCALATION_EMAIL_TEMPLATE,
-			"subject": "Ticket Needs Attention — {{ ticket_name }}",
-			"response": _signoff_email_shell(SIGNOFF_FAILED_ACCENT, "Escalation", "Ticket Needs Attention", body),
 		}).insert(ignore_permissions=True)
 
 

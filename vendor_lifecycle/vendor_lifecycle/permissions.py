@@ -82,11 +82,3 @@ def vendor_satisfaction_survey_query_conditions(user):
 
 def vendor_satisfaction_survey_has_permission(doc, ptype=None, user=None):
 	return supplier_portal_has_permission(doc, user)
-
-
-def vendor_support_ticket_query_conditions(user):
-	return supplier_portal_permission_query_conditions(user, "Vendor Support Ticket")
-
-
-def vendor_support_ticket_has_permission(doc, ptype=None, user=None):
-	return supplier_portal_has_permission(doc, user)
