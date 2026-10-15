@@ -17,53 +17,55 @@ Two things worth weighing before adopting this on a live site:
 
 Everything lives under one workspace, organised into Onboarding, Deboarding, Ongoing Engagement, and Masters & Settings:
 
-![The Vendor Lifecycle workspace](docs/screenshots/workspace.png?v=ff55a68)
+![The Vendor Lifecycle workspace](docs/screenshots/workspace.png?v=20261015)
 
 **Onboarding.** A Vendor Onboarding Request (public web form or staff-entered) becomes a Vendor KYC on approval, which auto-creates the real Supplier/Contact/Address/Bank Account on submit. Whether PAN (India) and Tax ID (other countries) are mandatory is set in Settings:
 
-![Vendor KYC form](docs/screenshots/vendor_kyc.png?v=ff55a68)
+![Vendor KYC form](docs/screenshots/vendor_kyc.png?v=20261015)
 
 From there, up to four independently-configurable stages run in sequence — each disables the Supplier automatically on a Failed/Rejected outcome, and reverts that disable if it was the one responsible when cancelled. While a failure stands, no later stage can be started until it is cancelled or force-overridden:
 
-![Vendor Background Check](docs/screenshots/vendor_background_check.png?v=ff55a68)
-![Vendor Compliance Audit](docs/screenshots/vendor_compliance_audit.png?v=ff55a68)
+![Vendor Background Check](docs/screenshots/vendor_background_check.png?v=20261015)
+![Vendor Compliance Audit](docs/screenshots/vendor_compliance_audit.png?v=20261015)
 
 Sampling Evaluation can be made mandatory only for specific Business Types, so it's skipped entirely — straight from Compliance Audit to Sign-off — for business types not listed:
 
-![Vendor Sampling Evaluation](docs/screenshots/vendor_sampling_evaluation.png?v=ff55a68)
+![Vendor Sampling Evaluation](docs/screenshots/vendor_sampling_evaluation.png?v=20261015)
 
 Sign-off is the final gate — contract and code of conduct sent and collected by email, activating the Supplier on success. Unlike the other three stages, a genuine Failed Sign-off can be retried directly, without cancelling the failed record first — the retry links back to the attempt it's replacing, and the KYC's own "Create" menu labels it distinctly as a retry, not a fresh attempt. A passing retry re-activates and unfreezes the Supplier; the failed attempt stays on record:
 
-![Vendor Sign Off form, with the Retry Sign-off button](docs/screenshots/vendor_sign_off.png?v=ff55a68)
-![Vendor KYC Create dropdown offering Retry Sign-off](docs/screenshots/vendor_kyc_create_dropdown.png?v=ff55a68)
+![Vendor Sign Off form, with the Retry Sign-off button](docs/screenshots/vendor_sign_off.png?v=20261015)
+![Vendor KYC Create dropdown offering Retry Sign-off](docs/screenshots/vendor_kyc_create_dropdown.png?v=20261015)
 
 **Ongoing Engagement.** Once active, Satisfaction Surveys are auto-created per vendor on a configurable cadence — reachable by vendors through a login-gated portal, with no Desk access needed, where a vendor can only fill in scores, issues and remarks. The Vendor Engagement dashboard shows completed surveys, response rate, average score and overdue surveys for the last 12 months, plus the average score per criterion:
 
-![Vendor Satisfaction Survey](docs/screenshots/vendor_satisfaction_survey.png?v=ff55a68)
+![Vendor Satisfaction Survey](docs/screenshots/vendor_satisfaction_survey.png?v=20261015)
+![Vendor Engagement dashboard](docs/screenshots/dashboard_engagement.png?v=20261015)
 
 **Deboarding.** A Vendor Deboarding Request captures the reason and a ratings review, with live visibility into any open Purchase Orders or unpaid invoices before it's approved:
 
-![Vendor Deboarding Request](docs/screenshots/vendor_deboarding_request.png?v=ff55a68)
+![Vendor Deboarding Request](docs/screenshots/vendor_deboarding_request.png?v=20261015)
 
 Once approved, a configurable Vendor Deboarding Checklist walks the closure through to completion — a signed Clearance Certificate is emailed to whichever contact is on file (KYC, Supplier's Primary Contact, or an additional address, deduplicated automatically) and collected back the same way — before disabling the Supplier on submit. The Checklist also has a toggle to temporarily re-enable the Supplier for a number of days set in Settings ("Temporary Enable Days", default 7) — for example, to let a final return or payment go through — which auto-disables again on expiry (nightly, 2 AM) unless someone flips it back off first. The same button is on the Supplier form while the vendor is Deboarded or being re-boarded; both act on the same Checklist, which records every toggle as a comment. The button relabels between "Temporarily Enable Supplier" and "Disable Supplier" depending on its current state:
 
-![Vendor Deboarding Checklist](docs/screenshots/vendor_deboarding_checklist.png?v=ff55a68)
-![Vendor Deboarding Checklist, before temporarily enabling the Supplier](docs/screenshots/vendor_deboarding_checklist_toggle_off.png?v=ff55a68)
-![Vendor Deboarding Checklist, after temporarily enabling the Supplier — the button flips to Disable Supplier](docs/screenshots/vendor_deboarding_checklist_toggle_on.png?v=ff55a68)
+![Vendor Deboarding Checklist](docs/screenshots/vendor_deboarding_checklist.png?v=20261015)
+![Vendor Deboarding Checklist, before temporarily enabling the Supplier](docs/screenshots/vendor_deboarding_checklist_toggle_off.png?v=20261015)
+![Vendor Deboarding Checklist, after temporarily enabling the Supplier — the button flips to Disable Supplier](docs/screenshots/vendor_deboarding_checklist_toggle_on.png?v=20261015)
+![The same toggle on the Supplier form while the vendor is Deboarded](docs/screenshots/supplier_temporary_enable.png?v=20261015)
 
 **Reboarding.** A deboarded vendor doesn't have to be re-created from scratch. A Vendor Reboarding Request re-runs whichever of Background Check, Compliance Audit, Sampling Evaluation, and Sign-off Settings marks mandatory for re-boarding — its own Pipeline Progress view tracks each stage the same way Onboarding does — and re-activates the Supplier once every mandatory stage has passed:
 
-![Vendor Reboarding Request, showing its Pipeline Progress tracker](docs/screenshots/vendor_reboarding_request.png?v=ff55a68)
+![Vendor Reboarding Request, showing its Pipeline Progress tracker](docs/screenshots/vendor_reboarding_request.png?v=20261015)
 
 **Renewal & Ad-hoc.** Independent of any Onboarding/Reboarding run, a Compliance Audit or Sign-off can be created directly as a standalone **Renewal** (for periodic re-verification once a vendor is already active — compliance audit and contract validity dates, and whether an expiry auto-disables the Supplier, are all configurable), and a Sampling Evaluation as a standalone **Ad-hoc** re-check (for example, when a vendor introduces a new product) with zero effect on the Supplier's status either way. Both are only for active vendors (Onboarded, Reboarded, or still being deboarded) and not for one on hold. If Settings disables vendors on expiry, the expiry job (or a failed Renewal) disables the Supplier with status "Compliance Audit Expired" / "Contract Expired"; a Renewal of the same type can still be run on it and re-activates it when passed. Scheduled reminder emails flag both an upcoming Renewal expiry and an unfinished draft Renewal, each independently toggleable in Settings.
 
-![Vendor Compliance Audit created as a standalone Renewal](docs/screenshots/vendor_compliance_audit_renewal.png?v=ff55a68)
-![Vendor Sign Off created as a standalone Renewal](docs/screenshots/vendor_sign_off_renewal.png?v=ff55a68)
-![Vendor Sampling Evaluation created as a standalone Ad-hoc re-check](docs/screenshots/vendor_sampling_evaluation_adhoc.png?v=ff55a68)
+![Vendor Compliance Audit created as a standalone Renewal](docs/screenshots/vendor_compliance_audit_renewal.png?v=20261015)
+![Vendor Sign Off created as a standalone Renewal](docs/screenshots/vendor_sign_off_renewal.png?v=20261015)
+![Vendor Sampling Evaluation created as a standalone Ad-hoc re-check](docs/screenshots/vendor_sampling_evaluation_adhoc.png?v=20261015)
 
 **Configuration.** One Settings screen controls almost everything above — no code change required:
 
-![Vendor Lifecycle Settings](docs/screenshots/vendor_lifecycle_settings.png?v=ff55a68)
+![Vendor Lifecycle Settings](docs/screenshots/vendor_lifecycle_settings.png?v=20261015)
 
 ## Doctypes
 
