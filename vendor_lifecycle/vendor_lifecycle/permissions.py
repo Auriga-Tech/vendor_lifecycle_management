@@ -13,6 +13,12 @@ def is_internal_user(user=None):
 	return any(role in roles for role in INTERNAL_ROLES)
 
 
+def check_app_permission():
+	# Shows the app on the Apps screen (hooks.py add_to_apps_screen) to staff
+	# only, never to Supplier portal users.
+	return frappe.session.user == "Administrator" or is_internal_user()
+
+
 def require_internal_user():
 	# For whitelisted methods that return site-wide or other vendors' data —
 	# a Supplier portal user can call any whitelisted method directly.

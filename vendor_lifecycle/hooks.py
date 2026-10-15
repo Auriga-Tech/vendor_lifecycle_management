@@ -4,6 +4,8 @@ app_publisher = "Auriga IT"
 app_description = "Vendor onboarding and deboarding lifecycle management for Frappe/ERPNext"
 app_email = "rahul.chaudhary@aurigait.com"
 app_license = "mit"
+app_logo_url = "/assets/vendor_lifecycle/icons/desktop_icons/solid/vendor_lifecycle.svg"
+app_home = "/desk/vendor-lifecycle"
 
 # Apps
 # ------------------
@@ -22,15 +24,15 @@ extend_bootinfo = "vendor_lifecycle.vendor_lifecycle.boot.set_bootinfo"
 # changes) - see vendor_lifecycle/setup.py.
 
 # Each item in the list will be shown as an app in the apps page
-# add_to_apps_screen = [
-# 	{
-# 		"name": "vendor_lifecycle",
-# 		"logo": "/assets/vendor_lifecycle/logo.png",
-# 		"title": "Vendor Lifecycle",
-# 		"route": "/vendor_lifecycle",
-# 		"has_permission": "vendor_lifecycle.api.permission.has_app_permission"
-# 	}
-# ]
+add_to_apps_screen = [
+	{
+		"name": app_name,
+		"logo": app_logo_url,
+		"title": app_title,
+		"route": app_home,
+		"has_permission": "vendor_lifecycle.vendor_lifecycle.permissions.check_app_permission",
+	}
+]
 
 # Includes in <head>
 # ------------------
