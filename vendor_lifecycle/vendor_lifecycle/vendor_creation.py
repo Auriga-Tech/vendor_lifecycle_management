@@ -3,6 +3,8 @@
 
 import frappe
 
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
+
 # --- vendor_lifecycle_status (fine-grained — "what's happening right
 # now") -----------------------------------------------------------------
 # Centralized here, rather than one set of constants per doctype as
@@ -256,6 +258,7 @@ def _create_or_update_supplier(kyc):
 		else:
 			supplier.save(ignore_permissions=True)
 	except Exception as e:
+		reraise_if_db_lock_error()
 		# If the caught error itself came from frappe.throw(), it already
 		# queued its own message for automatic display — left in place,
 		# the user would see both that raw error AND the friendlier one
@@ -273,6 +276,7 @@ def _create_or_update_supplier(kyc):
 		try:
 			address = _create_addresses_for_supplier(kyc, supplier)
 		except Exception as e:
+			reraise_if_db_lock_error()
 			# See the matching comment on the Supplier-creation try/except
 			# above — without this, the raw underlying error would show
 			# alongside this friendlier wrapped one.
@@ -287,6 +291,7 @@ def _create_or_update_supplier(kyc):
 		try:
 			contact = make_contact_for_supplier(supplier, *_contact_args_from_kyc(kyc))
 		except Exception as e:
+			reraise_if_db_lock_error()
 			# See the matching comment on the Supplier-creation try/except
 			# above — without this, the raw underlying error would show
 			# alongside this friendlier wrapped one.
@@ -301,6 +306,7 @@ def _create_or_update_supplier(kyc):
 		try:
 			bank_account = make_bank_account_for_supplier(supplier, *_bank_account_args_from_kyc(kyc))
 		except Exception as e:
+			reraise_if_db_lock_error()
 			# See the matching comment on the Supplier-creation try/except
 			# above — without this, the raw underlying error would show
 			# alongside this friendlier wrapped one.
@@ -969,6 +975,7 @@ def send_vendor_lifecycle_email(
 				),
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			# The Error Log entry above is the guaranteed record of this —
 			# never let a failure while merely adding a Comment escalate
 			# into breaking this best-effort function's own no-raise
@@ -1030,6 +1037,7 @@ def notify_manual_attach_needed(doctype, name, owner, reason):
 	try:
 		_notify_manual_attach_needed_unsafe(doctype, name, owner, reason)
 	except Exception:
+		reraise_if_db_lock_error()
 		frappe.log_error(
 			title=f"{doctype}: failed to send manual-attach-needed email", message=frappe.get_traceback()
 		)
@@ -1073,6 +1081,7 @@ def notify_attachment_save_failed(doctype, name, owner, context):
 			},
 		)
 	except Exception:
+		reraise_if_db_lock_error()
 		frappe.log_error(
 			title=f"{doctype}: failed to send attachment-save-failed email", message=frappe.get_traceback()
 		)

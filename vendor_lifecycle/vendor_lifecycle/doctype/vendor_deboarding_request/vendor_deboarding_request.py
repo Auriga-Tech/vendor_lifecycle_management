@@ -4,6 +4,7 @@
 import frappe
 from frappe.model.document import Document
 
+from vendor_lifecycle.vendor_lifecycle.permissions import require_internal_user
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING,
@@ -18,6 +19,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	send_vendor_lifecycle_email,
 	vendor_lifecycle_manager_emails,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 OPEN_PO_STATUSES = ["Draft", "To Receive and Bill", "To Bill", "To Receive"]
 
@@ -262,6 +264,7 @@ class VendorDeboardingRequest(Document):
 		try:
 			self._notify_created_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Deboarding Request: failed to send creation email", message=frappe.get_traceback()
 			)
@@ -282,6 +285,7 @@ class VendorDeboardingRequest(Document):
 		try:
 			self._notify_rejected_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Deboarding Request: failed to send rejected email", message=frappe.get_traceback()
 			)
@@ -305,6 +309,7 @@ class VendorDeboardingRequest(Document):
 		try:
 			self._notify_approved_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Deboarding Request: failed to send approved email", message=frappe.get_traceback()
 			)
@@ -433,6 +438,7 @@ def get_default_ratings():
 	immediately, rather than only after the first save. before_insert()
 	still does the same population server-side, as a fallback for any
 	document created outside the UI (API, data import, etc.)."""
+	require_internal_user()
 	return [{"criteria": row.name} for row in get_deboarding_rating_criteria()]
 
 

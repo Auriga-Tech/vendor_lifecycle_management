@@ -20,6 +20,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	send_vendor_lifecycle_email,
 	vendor_lifecycle_manager_emails,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 DEFAULT_ONBOARDING_RECEIVED_EMAIL_TEMPLATE = "Vendor Onboarding Request Received"
 DEFAULT_ONBOARDING_NEW_REQUEST_EMAIL_TEMPLATE = "Vendor Onboarding Request - New Submission"
@@ -78,6 +79,7 @@ class VendorOnboardingRequest(Document):
 				recipients=[self.email] if self.email else [],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Onboarding Request: failed to send received email", message=frappe.get_traceback()
 			)
@@ -98,6 +100,7 @@ class VendorOnboardingRequest(Document):
 				recipients=vendor_lifecycle_manager_emails(),
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Onboarding Request: failed to send new-request notification", message=frappe.get_traceback()
 			)
@@ -122,6 +125,7 @@ class VendorOnboardingRequest(Document):
 				recipients=[self.email] if self.email else [],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Onboarding Request: failed to send approved email", message=frappe.get_traceback()
 			)

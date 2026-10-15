@@ -23,6 +23,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	resolve_vendor_lifecycle_company_name,
 	send_vendor_lifecycle_email,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 DEFAULT_VENDOR_LIFECYCLE_PASSED_EMAIL_TEMPLATE = "Vendor Lifecycle Stage Passed"
 DEFAULT_VENDOR_LIFECYCLE_FAILED_EMAIL_TEMPLATE = "Vendor Lifecycle Stage Failed"
@@ -157,6 +158,7 @@ class VendorKYC(Document):
 				recipients=[self.official_email] if self.official_email else [],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(title="Vendor KYC: failed to send rejected email", message=frappe.get_traceback())
 
 	def _enforce_creation_source(self):
@@ -503,6 +505,7 @@ class VendorKYC(Document):
 				recipients=[self.official_email] if self.official_email else [],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(title="Vendor KYC: failed to send completed email", message=frappe.get_traceback())
 
 	def on_trash(self):

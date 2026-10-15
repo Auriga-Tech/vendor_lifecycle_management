@@ -22,6 +22,7 @@ aborted for the whole site by one bad reply.
 import frappe
 
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import notify_attachment_save_failed
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 # handler_key -> (document doctype the reply must reference, handler path).
 # Referenced by dotted path (not imported) since both handler modules import
@@ -56,6 +57,7 @@ def run_reply_handler(handler_key, communication, is_retry=False):
 	try:
 		frappe.get_attr(handler_path)(communication)
 	except Exception:
+		reraise_if_db_lock_error()
 		traceback = frappe.get_traceback()
 		frappe.db.rollback(save_point=save_point)
 		frappe.clear_last_message()
@@ -107,6 +109,7 @@ def _handle_failure(handler_key, document_doctype, communication, traceback, is_
 				handler_key=handler_key,
 			)
 	except Exception:
+		reraise_if_db_lock_error()
 		frappe.log_error(
 			title=f"{document_doctype}: failed to report an inbound reply attach failure",
 			message=frappe.get_traceback(),
@@ -140,6 +143,7 @@ def _log_failure(document_doctype, document_name, traceback):
 		)
 		return error_log.name if error_log else None
 	except Exception:
+		reraise_if_db_lock_error()
 		return None
 
 
@@ -162,6 +166,7 @@ def _comment_failure(document_doctype, document_name, error_log_name, will_retry
 			"content": content.format(log_note),
 		}).insert(ignore_permissions=True)
 	except Exception:
+		reraise_if_db_lock_error()
 		frappe.log_error(
 			title=f"{document_doctype}: failed to comment on an inbound reply attach failure",
 			message=frappe.get_traceback(),

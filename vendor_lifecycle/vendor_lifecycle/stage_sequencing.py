@@ -4,6 +4,7 @@
 import frappe
 
 from vendor_lifecycle.vendor_lifecycle.permissions import require_internal_user
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 
 def _is_globally_mandatory(fieldname):
@@ -826,6 +827,7 @@ def _notify_force_overridden(doc):
 			recipients=[contact["official_email"]] if contact.get("official_email") else [],
 		)
 	except Exception:
+		reraise_if_db_lock_error()
 		frappe.log_error(
 			title=f"{doc.doctype}: failed to send force-override email", message=frappe.get_traceback()
 		)

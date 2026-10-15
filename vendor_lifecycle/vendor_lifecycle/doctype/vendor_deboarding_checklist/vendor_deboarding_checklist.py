@@ -9,6 +9,7 @@ from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_request.vendor_
 	block_if_stopped,
 	get_open_transaction_details,
 )
+from vendor_lifecycle.vendor_lifecycle.permissions import require_internal_user
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING,
@@ -24,6 +25,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	vendor_lifecycle_doctype_email_enabled,
 	vendor_lifecycle_emails_enabled,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 # Only these two roles (or one of the two assigned users on a given row)
 # may change that row's own status. Also the only roles allowed to use the
@@ -199,6 +201,7 @@ class VendorDeboardingChecklist(Document):
 		try:
 			self._notify_new_assignments_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Deboarding Checklist: failed to send assignment email", message=frappe.get_traceback()
 			)
@@ -292,6 +295,7 @@ class VendorDeboardingChecklist(Document):
 		try:
 			self._notify_clearance_certificate_received_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Deboarding Checklist: failed to notify signed certificate received",
 				message=frappe.get_traceback(),
@@ -815,6 +819,7 @@ def get_default_checklist():
 	immediately, rather than only after the first save. before_insert()
 	still does the same resolution server-side, as a fallback for any
 	document created outside the UI."""
+	require_internal_user()
 	template_name = frappe.db.get_single_value("Vendor Lifecycle Settings", "default_checklist_template")
 	if not template_name:
 		return {"checklist_template": None, "items": []}

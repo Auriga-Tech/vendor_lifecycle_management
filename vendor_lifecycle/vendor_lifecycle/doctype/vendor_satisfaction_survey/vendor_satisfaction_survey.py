@@ -10,6 +10,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	resolve_vendor_lifecycle_company_name,
 	send_vendor_lifecycle_email,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 DEFAULT_SATISFACTION_SURVEY_CREATED_EMAIL_TEMPLATE = "Vendor Satisfaction Survey Created"
 DEFAULT_SATISFACTION_SURVEY_REMINDER_EMAIL_TEMPLATE = "Vendor Satisfaction Survey Reminder"
@@ -133,6 +134,7 @@ class VendorSatisfactionSurvey(Document):
 		try:
 			self._notify_created_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Satisfaction Survey: failed to send creation email", message=frappe.get_traceback()
 			)

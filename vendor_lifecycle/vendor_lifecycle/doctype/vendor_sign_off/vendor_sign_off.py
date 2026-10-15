@@ -49,6 +49,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	vendor_lifecycle_doctype_email_enabled,
 	vendor_lifecycle_emails_enabled,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 # Hardcoded, by explicit product decision — no longer Settings-configurable
 # Link fields (see install.py's backfill_default_signoff_*_email_template
@@ -651,6 +652,7 @@ class VendorSignOff(Document):
 		try:
 			self.notify_document_received(document_type)
 		except Exception:
+			reraise_if_db_lock_error()
 			# A failure here (e.g. no usable Email Account) must never look
 			# like the save itself failed — frappe.throw() inside
 			# notify_document_received() queues its message to the client
@@ -814,6 +816,7 @@ class VendorSignOff(Document):
 		try:
 			self._send_outcome_email_unsafe()
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Sign Off: failed to send outcome email",
 				message=frappe.get_traceback(),
@@ -931,7 +934,15 @@ class VendorSignOff(Document):
 			return None
 		previous_contract_valid_until = frappe.db.get_value(
 			"Vendor Sign Off",
-			{"vendor": self.vendor, "docstatus": 1, "sign_off_failed": 0, "name": ["!=", self.name]},
+			# Skip passes left without a date — rolling back onto a blank
+			# would read as "expired" and could wrongly disable the vendor.
+			{
+				"vendor": self.vendor,
+				"docstatus": 1,
+				"sign_off_failed": 0,
+				"name": ["!=", self.name],
+				"contract_validity": ["is", "set"],
+			},
 			"contract_validity",
 			order_by="creation desc",
 		)

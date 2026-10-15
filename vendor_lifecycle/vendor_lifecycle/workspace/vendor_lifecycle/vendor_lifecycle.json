@@ -45,7 +45,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Vendor Onboarding Request",
+   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor KYC",
@@ -56,7 +56,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Vendor KYC",
+   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor Background Check",
@@ -67,7 +67,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Vendor KYC",
+   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor Compliance Audit",
@@ -78,7 +78,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Vendor KYC",
+   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor Sampling Evaluation",
@@ -89,7 +89,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Vendor KYC",
+   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor Sign Off",
@@ -119,7 +119,7 @@
    "type": "Link"
   },
   {
-   "dependencies": "Vendor Deboarding Request",
+   "dependencies": "",
    "hidden": 0,
    "is_query_report": 0,
    "label": "Vendor Deboarding Checklist",
@@ -470,7 +470,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-10-15 15:51:36.986078",
+ "modified": "2026-10-15 17:37:33.058646",
  "modified_by": "Administrator",
  "module": "Vendor Lifecycle",
  "name": "Vendor Lifecycle",

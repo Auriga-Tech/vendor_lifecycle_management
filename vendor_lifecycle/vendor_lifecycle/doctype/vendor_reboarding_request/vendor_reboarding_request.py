@@ -23,6 +23,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	resolve_vendor_lifecycle_company_name,
 	send_vendor_lifecycle_email,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 # A new Reboarding Request only makes sense once a vendor has actually
 # settled into Deboarded (or already failed a re-boarding attempt) —
@@ -269,6 +270,19 @@ class VendorReboardingRequest(Document):
 	def before_cancel(self):
 		if self.is_stopped:
 			frappe.throw(frappe._("This request has been stopped — see its Comments for why — re-open it before cancelling."))
+		self._block_cancel_while_stage_drafts_exist()
+
+	def _block_cancel_while_stage_drafts_exist(self):
+		# A submitted stage already blocks this (Frappe's linked-document
+		# check); a draft would be left pointing at a cancelled request.
+		for doctype in ("Vendor Background Check", "Vendor Compliance Audit", "Vendor Sampling Evaluation", "Vendor Sign Off"):
+			draft = frappe.db.get_value(doctype, {"reboarding_request": self.name, "docstatus": 0}, "name")
+			if draft:
+				frappe.throw(
+					frappe._("Delete the draft {0} {1} first.").format(
+						doctype, frappe.utils.get_link_to_form(doctype, draft)
+					)
+				)
 
 	def _block_second_active_request(self):
 		if not self.vendor:
@@ -285,6 +299,14 @@ class VendorReboardingRequest(Document):
 		# it shouldn't permanently occupy this slot either; otherwise
 		# _require_stage_allows_new_request()'s own "Stopped -> allow a
 		# new attempt" exception could never actually be reached.
+		# A request whose re-boarding Sign Off passed is finished — it no
+		# longer occupies the slot either, or a vendor deboarded again could
+		# never be re-boarded a second time.
+		finished = frappe.get_all(
+			"Vendor Sign Off",
+			filters={"is_reboarding": 1, "docstatus": 1, "sign_off_failed": 0, "reboarding_request": ["is", "set"]},
+			pluck="reboarding_request",
+		)
 		if frappe.db.exists(
 			"Vendor Reboarding Request",
 			{
@@ -292,6 +314,7 @@ class VendorReboardingRequest(Document):
 				"docstatus": ["in", [0, 1]],
 				"workflow_state": ["not in", ["Trashed", "Rejected"]],
 				"is_stopped": 0,
+				"name": ["not in", finished or [""]],
 			},
 		):
 			frappe.throw(
@@ -422,6 +445,7 @@ class VendorReboardingRequest(Document):
 				recipients=[self.official_email] if self.official_email else [],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title=f"Vendor Reboarding Request: failed to send {template_name}", message=frappe.get_traceback()
 			)
@@ -449,6 +473,7 @@ class VendorReboardingRequest(Document):
 				recipients=[creator_email],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title=f"Vendor Reboarding Request: failed to send {template_name} (creator)",
 				message=frappe.get_traceback(),

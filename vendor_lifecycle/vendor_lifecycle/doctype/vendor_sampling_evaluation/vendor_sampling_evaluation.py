@@ -35,6 +35,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	sync_onboarding_request_field,
 	sync_vendor_field,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 DEFAULT_VENDOR_LIFECYCLE_PASSED_EMAIL_TEMPLATE = "Vendor Lifecycle Stage Passed"
 DEFAULT_VENDOR_LIFECYCLE_FAILED_EMAIL_TEMPLATE = "Vendor Lifecycle Stage Failed"
@@ -299,6 +300,7 @@ class VendorSamplingEvaluation(Document):
 				recipients=[contact["official_email"]] if contact.get("official_email") else [],
 			)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Sampling Evaluation: failed to send outcome email", message=frappe.get_traceback()
 			)

@@ -4,6 +4,7 @@
 import frappe
 from frappe.utils import add_days, add_to_date, get_datetime, getdate, now_datetime, nowdate
 
+from vendor_lifecycle.vendor_lifecycle.stage_sequencing import RENEWABLE_STAGES
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
 	VENDOR_LIFECYCLE_STAGE_REBOARDING,
@@ -12,6 +13,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED,
 	set_renewal_expired,
 )
+from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
 
 TEMPORARY_ENABLE_ONLY_STAGES = (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
@@ -130,7 +132,7 @@ def send_satisfaction_survey_reminders():
 			# Vendor Lifecycle Manager is CC'd automatically by
 			# send_vendor_lifecycle_email() (vendor_lifecycle_cc_list) —
 			# no separate recipient list needed for that.
-			send_vendor_lifecycle_email(
+			sent = send_vendor_lifecycle_email(
 				doctype="Vendor Satisfaction Survey",
 				name=survey.name,
 				template_name=DEFAULT_SATISFACTION_SURVEY_REMINDER_EMAIL_TEMPLATE,
@@ -145,9 +147,12 @@ def send_satisfaction_survey_reminders():
 				},
 				recipients=[contact["official_email"]],
 			)
-			frappe.db.set_value("Vendor Satisfaction Survey", survey.name, "last_reminder_sent", today)
-			reminded.append(survey.name)
+			# Recorded only when an email really went out (switches on).
+			if sent:
+				frappe.db.set_value("Vendor Satisfaction Survey", survey.name, "last_reminder_sent", today)
+				reminded.append(survey.name)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Satisfaction Survey: failed to send reminder email", message=frappe.get_traceback()
 			)
@@ -234,6 +239,7 @@ def send_checklist_assignment_reminders():
 				if checklist._send_task_email(user_email, DEFAULT_CHECKLIST_TASK_REMINDER_EMAIL_TEMPLATE):
 					reminded.append((name, user_email))
 			except Exception:
+				reraise_if_db_lock_error()
 				frappe.log_error(
 					title="Vendor Deboarding Checklist: failed to send task reminder",
 					message=frappe.get_traceback(),
@@ -269,6 +275,7 @@ def send_deboarding_checklist_followups():
 			if checklist._send_clearance_followup_email():
 				sent.append(name)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Vendor Deboarding Checklist: failed to send clearance follow-up",
 				message=frappe.get_traceback(),
@@ -298,6 +305,7 @@ def send_signoff_followups():
 			if sign_off._missing_documents() and sign_off._send_signoff_followup_email():
 				sent.append(name)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(title="Vendor Sign Off: failed to send follow-up", message=frappe.get_traceback())
 
 	return sent
@@ -343,7 +351,10 @@ def send_compliance_audit_renewal_notices():
 	today = getdate(nowdate())
 	vendors = frappe.get_all(
 		"Supplier",
-		filters={"compliance_audit_valid_until": ["is", "set"]},
+		# Only vendors a Renewal could be created for (see
+		# stage_sequencing.require_active_supplier_for_renewal) — no draft,
+		# email or expiry disable for one deboarded, mid-pipeline or on hold.
+		filters={"compliance_audit_valid_until": ["is", "set"], "vendor_lifecycle_stage": ["in", RENEWABLE_STAGES], "on_hold": 0},
 		fields=["name", "supplier_name", "compliance_audit_valid_until", "disabled"],
 	)
 
@@ -372,6 +383,7 @@ def send_compliance_audit_renewal_notices():
 				}).insert(ignore_permissions=True)
 				actions.append((vendor.name, "auto-created"))
 			except Exception:
+				reraise_if_db_lock_error()
 				frappe.log_error(
 					title="Compliance Audit Renewal: failed to auto-create draft", message=frappe.get_traceback()
 				)
@@ -399,6 +411,7 @@ def send_compliance_audit_renewal_notices():
 			if sent:
 				actions.append((vendor.name, f"due-soon-{days_remaining}"))
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Compliance Audit Renewal: failed to send due-soon email", message=frappe.get_traceback()
 			)
@@ -448,7 +461,7 @@ def send_compliance_audit_renewal_draft_reminders():
 			continue
 
 		try:
-			send_vendor_lifecycle_email(
+			sent = send_vendor_lifecycle_email(
 				doctype="Vendor Compliance Audit",
 				name=draft.name,
 				template_name=DEFAULT_COMPLIANCE_AUDIT_RENEWAL_DRAFT_REMINDER_EMAIL_TEMPLATE,
@@ -462,8 +475,10 @@ def send_compliance_audit_renewal_draft_reminders():
 				},
 				recipients=recipients,
 			)
-			reminded.append(draft.name)
+			if sent:
+				reminded.append(draft.name)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Compliance Audit Renewal: failed to send draft reminder", message=frappe.get_traceback()
 			)
@@ -491,7 +506,10 @@ def send_signoff_renewal_notices():
 	today = getdate(nowdate())
 	vendors = frappe.get_all(
 		"Supplier",
-		filters={"contract_valid_until": ["is", "set"]},
+		# Only vendors a Renewal could be created for (see
+		# stage_sequencing.require_active_supplier_for_renewal) — no draft,
+		# email or expiry disable for one deboarded, mid-pipeline or on hold.
+		filters={"contract_valid_until": ["is", "set"], "vendor_lifecycle_stage": ["in", RENEWABLE_STAGES], "on_hold": 0},
 		fields=["name", "supplier_name", "contract_valid_until", "disabled"],
 	)
 
@@ -520,6 +538,7 @@ def send_signoff_renewal_notices():
 				}).insert(ignore_permissions=True)
 				actions.append((vendor.name, "auto-created"))
 			except Exception:
+				reraise_if_db_lock_error()
 				frappe.log_error(
 					title="Sign Off Renewal: failed to auto-create draft", message=frappe.get_traceback()
 				)
@@ -547,6 +566,7 @@ def send_signoff_renewal_notices():
 			if sent:
 				actions.append((vendor.name, f"due-soon-{days_remaining}"))
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Sign Off Renewal: failed to send due-soon email", message=frappe.get_traceback()
 			)
@@ -593,7 +613,7 @@ def send_signoff_renewal_draft_reminders():
 			continue
 
 		try:
-			send_vendor_lifecycle_email(
+			sent = send_vendor_lifecycle_email(
 				doctype="Vendor Sign Off",
 				name=draft.name,
 				template_name=DEFAULT_SIGNOFF_RENEWAL_DRAFT_REMINDER_EMAIL_TEMPLATE,
@@ -607,8 +627,10 @@ def send_signoff_renewal_draft_reminders():
 				},
 				recipients=recipients,
 			)
-			reminded.append(draft.name)
+			if sent:
+				reminded.append(draft.name)
 		except Exception:
+			reraise_if_db_lock_error()
 			frappe.log_error(
 				title="Sign Off Renewal: failed to send draft reminder", message=frappe.get_traceback()
 			)
