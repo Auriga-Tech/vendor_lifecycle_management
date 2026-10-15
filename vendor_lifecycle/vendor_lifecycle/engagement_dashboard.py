@@ -13,6 +13,8 @@ import frappe
 from frappe.query_builder.functions import Avg, Count
 from frappe.utils import add_months, flt, nowdate
 
+from vendor_lifecycle.vendor_lifecycle.permissions import require_internal_user
+
 SURVEY = "Vendor Satisfaction Survey"
 RATING = "Vendor Satisfaction Rating"
 WINDOW_MONTHS = 12
@@ -20,6 +22,9 @@ STARS = 5
 
 
 def _window_start():
+	# Site-wide figures — internal users only (a Supplier can read its own
+	# surveys, so the read check alone isn't enough).
+	require_internal_user()
 	frappe.has_permission(SURVEY, "read", throw=True)
 	return add_months(nowdate(), -WINDOW_MONTHS)
 

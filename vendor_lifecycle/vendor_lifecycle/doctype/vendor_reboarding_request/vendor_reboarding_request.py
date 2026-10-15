@@ -4,6 +4,10 @@
 import frappe
 from frappe.model.document import Document
 
+from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist.vendor_deboarding_checklist import (
+	TEMPORARILY_ENABLED_STATUS,
+)
+from vendor_lifecycle.vendor_lifecycle.permissions import require_internal_user
 from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	VENDOR_LIFECYCLE_STAGE_DEBOARDED,
 	VENDOR_LIFECYCLE_STAGE_DEBOARDING,
@@ -358,6 +362,13 @@ class VendorReboardingRequest(Document):
 		# "Cancelled" is its own real status (the Workflow's own terminal
 		# state for this), same as Vendor KYC's own on_cancel().
 		self.db_set("status", "Cancelled")
+		# The plain Cancel button bypasses the Workflow's own "Cancel" action,
+		# which would otherwise leave the list showing "Approved".
+		workflow_state_field = frappe.db.get_value(
+			"Workflow", {"document_type": self.doctype, "is_active": 1}, "workflow_state_field"
+		)
+		if workflow_state_field and self.get(workflow_state_field) != "Cancelled":
+			self.db_set(workflow_state_field, "Cancelled")
 		self._restore_vendor_stage()
 
 	def _restore_vendor_stage(self):
@@ -370,9 +381,13 @@ class VendorReboardingRequest(Document):
 		stage = frappe.db.get_value("Supplier", self.vendor, "vendor_lifecycle_stage")
 		if stage not in (VENDOR_LIFECYCLE_STAGE_REBOARDING, VENDOR_LIFECYCLE_STAGE_REBOARDING_FAILED):
 			return
+		status = self.previous_vendor_status or VENDOR_LIFECYCLE_STATUS_DISABLED
+		if frappe.db.exists("Vendor Deboarding Checklist", {"supplier": self.vendor, "is_temporarily_enabled": 1}):
+			# Still inside a temporary-enable window — say so, not "Disabled".
+			status = TEMPORARILY_ENABLED_STATUS
 		frappe.db.set_value("Supplier", self.vendor, {
 			"vendor_lifecycle_stage": self.previous_vendor_stage or VENDOR_LIFECYCLE_STAGE_DEBOARDED,
-			"vendor_lifecycle_status": self.previous_vendor_status or VENDOR_LIFECYCLE_STATUS_DISABLED,
+			"vendor_lifecycle_status": status,
 		})
 
 	def on_update(self):
@@ -517,7 +532,11 @@ class VendorReboardingRequest(Document):
 		reports nothing else, since block_if_reboarding_request_stopped is
 		the hard, unconditional stop regardless of what stage 4's own
 		state would otherwise say."""
-		from vendor_lifecycle.vendor_lifecycle.stage_sequencing import STAGE_SEQUENCE, nearest_requirement
+		from vendor_lifecycle.vendor_lifecycle.stage_sequencing import (
+			STAGE_SEQUENCE,
+			nearest_requirement,
+			standing_stage_failure,
+		)
 
 		if self.is_stopped:
 			return {
@@ -549,6 +568,13 @@ class VendorReboardingRequest(Document):
 				self.original_kyc, STAGE_SEQUENCE[:idx], settings, reboarding_request=self.name
 			)
 			missing_requirement[doctype] = None if (not requirement or requirement[1]) else requirement[0]
+		# A failure still standing blocks every other stage (same rule as
+		# stage_sequencing.enforce_sequential_creation).
+		failure = standing_stage_failure({"reboarding_request": self.name})
+		if failure:
+			for doctype in names[1:]:
+				if doctype != failure["doctype"]:
+					missing_requirement[doctype] = failure["doctype"]
 
 		return {
 			"reboarding_complete": bool(reboarding_complete),
@@ -648,7 +674,10 @@ def get_reboarding_stage_info_for(reboarding_request):
 	can't safely assume this Request happens to already be loaded into
 	the browser's own locals either. Takes the name and does that lookup
 	itself instead."""
-	return frappe.get_doc("Vendor Reboarding Request", reboarding_request).get_reboarding_stage_info()
+	require_internal_user()
+	doc = frappe.get_doc("Vendor Reboarding Request", reboarding_request)
+	doc.check_permission("read")
+	return doc.get_reboarding_stage_info()
 
 
 def _compute_financial_summary(vendor):

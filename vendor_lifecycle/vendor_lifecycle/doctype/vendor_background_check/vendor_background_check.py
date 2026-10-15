@@ -103,7 +103,22 @@ class VendorBackgroundCheck(Document):
 		)
 
 	def on_trash(self):
+		block_if_onboarding_request_stopped(self)
+		self._require_references_deleted_first()
+		block_if_reboarding_request_stopped(self)
 		restore_status_after_draft_deleted(self, self._in_progress_status())
+
+	def _require_references_deleted_first(self):
+		# Clearer than Frappe's own "linked with" error.
+		references = frappe.get_all(
+			"Vendor Background Check Reference", filters={"background_check": self.name}, pluck="name"
+		)
+		if references:
+			frappe.throw(
+				frappe._("Cancel or delete this Background Check's References first: {0}").format(
+					", ".join(frappe.utils.get_link_to_form("Vendor Background Check Reference", r) for r in references)
+				)
+			)
 
 	def _clear_unused_auditor_field(self):
 		# Only one of internal Conducted By / external agency ever applies at

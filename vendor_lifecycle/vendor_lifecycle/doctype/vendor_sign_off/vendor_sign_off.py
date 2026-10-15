@@ -4,6 +4,9 @@
 import frappe
 from frappe.model.document import Document
 
+from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist.vendor_deboarding_checklist import (
+	clear_temporary_enable,
+)
 from vendor_lifecycle.vendor_lifecycle.stage_sequencing import (
 	block_if_onboarding_request_stopped,
 	block_if_reboarding_request_stopped,
@@ -752,6 +755,8 @@ class VendorSignOff(Document):
 		# else still disabling the vendor keeps it disabled.
 		if self.is_reboarding or not get_disable_reason_for_supplier(self.vendor):
 			update["disabled"] = 0
+		if self.is_reboarding:
+			clear_temporary_enable(self.vendor)
 		# Recorded here too (not just for a Renewal) — a contract's
 		# validity is a real thing from the very first Sign Off, not
 		# something that only starts existing once a Renewal happens.
@@ -786,6 +791,8 @@ class VendorSignOff(Document):
 		# "in progress".
 		if self.vendor:
 			frappe.db.set_value("Supplier", self.vendor, self._failed_supplier_state())
+			if self.is_reboarding:
+				clear_temporary_enable(self.vendor)
 
 	def _failed_supplier_state(self):
 		if self.is_reboarding:
@@ -873,6 +880,8 @@ class VendorSignOff(Document):
 		self._block_cancel_while_draft_retry_exists()
 
 	def on_trash(self):
+		block_if_onboarding_request_stopped(self)
+		block_if_reboarding_request_stopped(self)
 		# A retry draft deleted unsubmitted puts back the Failed status of
 		# the Sign Off it retried; a first draft, the last passed stage.
 		restore_status_after_draft_deleted(self, self._in_progress_status())
@@ -883,13 +892,17 @@ class VendorSignOff(Document):
 		# cancelled Sign Off it can then never be saved against.
 		if not self.sign_off_failed:
 			return
-		draft_retry = frappe.db.get_value(
-			"Vendor Sign Off", {"previous_failed_sign_off": self.name, "docstatus": 0}, "name"
+		retry = frappe.db.get_value(
+			"Vendor Sign Off",
+			{"previous_failed_sign_off": self.name, "docstatus": ["!=", 2]},
+			["name", "docstatus"],
+			as_dict=True,
 		)
-		if draft_retry:
+		if retry:
+			action = frappe._("Delete the draft retry") if retry.docstatus == 0 else frappe._("Cancel the retry")
 			frappe.throw(
-				frappe._("Delete the draft retry {0} before cancelling this Sign Off.").format(
-					frappe.utils.get_link_to_form(self.doctype, draft_retry)
+				frappe._("{0} {1} before cancelling this Sign Off.").format(
+					action, frappe.utils.get_link_to_form(self.doctype, retry.name)
 				)
 			)
 

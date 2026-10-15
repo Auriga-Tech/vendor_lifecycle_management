@@ -154,6 +154,8 @@ class VendorComplianceAudit(Document):
 		)
 
 	def on_trash(self):
+		block_if_onboarding_request_stopped(self)
+		block_if_reboarding_request_stopped(self)
 		restore_status_after_draft_deleted(self, self._in_progress_status())
 
 	def _resolve_valid_until(self):
@@ -776,6 +778,11 @@ class VendorComplianceAudit(Document):
 		if self.outcome != "Failed":
 			frappe.throw(frappe._("Only a Failed result can be force-overridden."))
 		force_override_stage(self, reason)
+		# Lets the vendor through like a pass, so it gets a validity period
+		# like a pass (undone on cancel by
+		# _revert_compliance_audit_valid_until_if_cancelled_pass).
+		if self.vendor:
+			frappe.db.set_value("Supplier", self.vendor, "compliance_audit_valid_until", self._resolve_valid_until())
 
 	def on_cancel(self):
 		block_if_onboarding_request_stopped(self)
@@ -796,14 +803,21 @@ class VendorComplianceAudit(Document):
 			refresh_status_after_pass_cancelled(self)
 
 	def _revert_compliance_audit_valid_until_if_cancelled_pass(self):
-		if self.outcome != "Passed" or not self.vendor:
+		if (self.outcome != "Passed" and not self.force_overridden) or not self.vendor:
 			return None
-		previous = frappe.db.get_value(
-			"Vendor Compliance Audit",
-			{"vendor": self.vendor, "docstatus": 1, "outcome": "Passed", "name": ["!=", self.name]},
-			["valid_until", "audit_date"],
-			order_by="audit_date desc",
-			as_dict=True,
+		# Passed and force-overridden audits both give the vendor validity.
+		previous = next(
+			iter(
+				frappe.get_all(
+					"Vendor Compliance Audit",
+					filters={"vendor": self.vendor, "docstatus": 1, "name": ["!=", self.name]},
+					or_filters={"outcome": "Passed", "force_overridden": 1},
+					fields=["valid_until", "audit_date"],
+					order_by="audit_date desc",
+					limit=1,
+				)
+			),
+			None,
 		)
 		# That earlier audit's own valid_until may itself have been left
 		# blank by its user (see _resolve_valid_until) - the exact same

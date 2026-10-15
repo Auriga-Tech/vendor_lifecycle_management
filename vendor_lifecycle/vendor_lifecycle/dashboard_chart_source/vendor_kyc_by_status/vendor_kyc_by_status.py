@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils.dashboard import cache_source
 
+from vendor_lifecycle.vendor_lifecycle.permissions import internal_only
+
 # Fixed label order so each status always gets the same color regardless of
 # which one currently has the most records - Frappe's built-in "Group By"
 # chart type always orders slices by live count (order_by="count desc" in
@@ -19,6 +21,7 @@ DISPLAY_LABELS = ['Approved', 'Rejected', 'In Progress', 'Pending']
 
 
 @frappe.whitelist()
+@internal_only
 @cache_source
 def get(
 	chart_name=None,

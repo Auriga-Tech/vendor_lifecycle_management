@@ -505,6 +505,10 @@ class VendorKYC(Document):
 		except Exception:
 			frappe.log_error(title="Vendor KYC: failed to send completed email", message=frappe.get_traceback())
 
+	def on_trash(self):
+		# A stopped Onboarding Request freezes its whole pipeline, drafts too.
+		block_if_onboarding_request_stopped(self)
+
 	def before_cancel(self):
 		block_if_onboarding_request_stopped(self)
 		# Frappe's own generic check_if_doc_is_linked would only ever catch

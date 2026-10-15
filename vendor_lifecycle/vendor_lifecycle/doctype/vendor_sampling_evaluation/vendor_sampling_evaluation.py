@@ -97,6 +97,8 @@ class VendorSamplingEvaluation(Document):
 		)
 
 	def on_trash(self):
+		block_if_onboarding_request_stopped(self)
+		block_if_reboarding_request_stopped(self)
 		restore_status_after_draft_deleted(self, self._in_progress_status())
 
 	def _require_sample_identifier(self):

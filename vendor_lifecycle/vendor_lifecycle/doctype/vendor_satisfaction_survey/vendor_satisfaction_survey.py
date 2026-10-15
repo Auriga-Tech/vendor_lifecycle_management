@@ -48,6 +48,8 @@ class VendorSatisfactionSurvey(Document):
 
 		if is_internal_user():
 			return
+		if not self.is_new():
+			self._forbid_portal_field_changes()
 		# Portal (Supplier-role) users can only ever file a survey against
 		# their own linked vendor — belt-and-suspenders alongside the
 		# permission_query_conditions hook, which only filters list views.
@@ -90,6 +92,22 @@ class VendorSatisfactionSurvey(Document):
 		else:
 			self.status = "Open"
 
+	def _forbid_portal_field_changes(self):
+		# A Supplier fills in scores, issues and remarks only — everything
+		# else is set by staff or the scheduler.
+		before = self.get_doc_before_save()
+		if not before:
+			return
+		for fieldname in PORTAL_LOCKED_FIELDS:
+			# Compared as text — the portal sends dates/checks as strings.
+			if frappe.utils.cstr(self.get(fieldname)) != frappe.utils.cstr(before.get(fieldname)):
+				frappe.throw(
+					frappe._("{0} can't be changed.").format(frappe.bold(self.meta.get_label(fieldname)))
+				)
+		criteria_before = {row.name: row.criteria for row in before.ratings}
+		if any(criteria_before.get(row.name) != row.criteria for row in self.ratings):
+			frappe.throw(frappe._("A rating's criteria can't be changed."))
+
 	def _forbid_rating_row_changes(self):
 		# The grid's add/delete-row buttons are hidden client-side (see
 		# vendor_satisfaction_survey.js), but that's Desk-UI-only — this is
@@ -130,6 +148,9 @@ class VendorSatisfactionSurvey(Document):
 			context=_survey_email_context(self, contact),
 			recipients=[contact["official_email"]],
 		)
+
+
+PORTAL_LOCKED_FIELDS = ("vendor", "period", "survey_date", "is_system_generated", "last_reminder_sent")
 
 
 def _survey_email_context(survey, contact):

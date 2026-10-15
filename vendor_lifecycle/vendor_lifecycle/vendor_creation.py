@@ -629,13 +629,22 @@ def resolve_current_stage_status(*, kyc=None, reboarding_request=None):
 			VENDOR_LIFECYCLE_STATUS_KYC_VERIFIED,
 		)
 
-	if frappe.db.exists("Vendor Sampling Evaluation", {**scope, "docstatus": 1, "evaluation_outcome": "Approved"}):
+	# A force-overridden failure counts as passed here, same as for the next
+	# stage's own gate (stage_sequencing.stage_requirement_satisfied).
+	if _passed_or_overridden("Vendor Sampling Evaluation", scope, {"evaluation_outcome": "Approved"}):
 		return sampling
-	if frappe.db.exists("Vendor Compliance Audit", {**scope, "docstatus": 1, "outcome": "Passed"}):
+	if _passed_or_overridden("Vendor Compliance Audit", scope, {"outcome": "Passed"}):
 		return audit
-	if frappe.db.exists("Vendor Background Check", {**scope, "docstatus": 1, "overall_status": "Passed"}):
+	if _passed_or_overridden("Vendor Background Check", scope, {"overall_status": "Passed"}):
 		return background
 	return baseline
+
+
+def _passed_or_overridden(doctype, scope, passed_filter):
+	return bool(
+		frappe.db.exists(doctype, {**scope, "docstatus": 1, **passed_filter})
+		or frappe.db.exists(doctype, {**scope, "docstatus": 1, "force_overridden": 1})
+	)
 
 
 FAILED_STATUS_BY_DOCTYPE = {
@@ -913,7 +922,9 @@ def vendor_lifecycle_doctype_email_enabled(doctype, template_name, settings):
 	return True
 
 
-def send_vendor_lifecycle_email(doctype, name, template_name, context, recipients, extra_cc=None):
+def send_vendor_lifecycle_email(
+	doctype, name, template_name, context, recipients, extra_cc=None, settings_doctype=None
+):
 	"""Shared low-level sender for every new, simple (no-attachment)
 	Vendor Lifecycle notification — Onboarding Request received/approved,
 	KYC completed/rejected, and each stage doctype's own passed/failed/
@@ -925,11 +936,15 @@ def send_vendor_lifecycle_email(doctype, name, template_name, context, recipient
 	Silently does nothing if "Use Emails" is off, if `recipients` is
 	empty, or if a template of `template_name` doesn't exist — deliberate,
 	since this always runs from a doc_events-style hook where a hard
-	failure would be surprising."""
+	failure would be surprising.
+
+	`settings_doctype` picks the per-doctype Settings checkbox when the email
+	is filed on a different record (e.g. a renewal reminder filed on the
+	Supplier). Returns True only when the email was actually sent."""
 	settings = frappe.get_single("Vendor Lifecycle Settings")
 	if not vendor_lifecycle_emails_enabled(settings):
 		return
-	if not vendor_lifecycle_doctype_email_enabled(doctype, template_name, settings):
+	if not vendor_lifecycle_doctype_email_enabled(settings_doctype or doctype, template_name, settings):
 		return
 	if not recipients:
 		return
@@ -1000,6 +1015,7 @@ def send_vendor_lifecycle_email(doctype, name, template_name, context, recipient
 	if account:
 		comm.db_set("email_account", account.name, update_modified=False)
 	comm.send_email()
+	return True
 
 
 DEFAULT_MANUAL_ATTACH_NEEDED_EMAIL_TEMPLATE = "Vendor Lifecycle Manual Attachment Needed"

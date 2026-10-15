@@ -60,6 +60,7 @@ frappe.ui.form.on("Vendor Onboarding Request", {
 			"Not Started": "progress-bar-not-started",
 			"Skipped": "progress-bar-danger",
 			"Rejected": "progress-bar-danger",
+			"Trashed": "progress-bar-not-started",
 			"Failed": "progress-bar-danger",
 			// Distinct from a clean "Completed" (green) and a genuine "Failed"
 			// (red) — this stage's own outcome is still really Failed/Rejected
@@ -122,7 +123,8 @@ frappe.ui.form.on("Vendor Onboarding Request", {
 			// setting only matters for a genuine duplicate: an earlier KYC
 			// still Draft/In Progress/Approved. Matches Vendor KYC's own
 			// duplicate-check.
-			const has_kyc = !!kyc_stage && kyc_stage.state !== "Not Started" && kyc_stage.state !== "Rejected";
+			const has_kyc =
+				!!kyc_stage && !["Not Started", "Rejected", "Trashed"].includes(kyc_stage.state);
 
 			const handling = frappe.boot.vendor_lifecycle_settings?.duplicate_kyc_handling || "Stop";
 			if (has_kyc && handling === "Stop") {

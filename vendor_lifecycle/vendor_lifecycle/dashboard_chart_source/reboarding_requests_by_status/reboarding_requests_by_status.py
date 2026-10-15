@@ -5,6 +5,8 @@ import frappe
 from frappe import _
 from frappe.utils.dashboard import cache_source
 
+from vendor_lifecycle.vendor_lifecycle.permissions import internal_only
+
 # Fixed label order (5 of the Vendor Reboarding Request Workflow's 6 states
 # — "Cancelled" is deliberately left out of this chart) so each status
 # always gets the same color regardless of which one currently has the most
@@ -14,6 +16,7 @@ LABELS = ["In Progress", "Approval Pending", "Approved", "Rejected", "Trashed"]
 
 
 @frappe.whitelist()
+@internal_only
 @cache_source
 def get(
 	chart_name=None,

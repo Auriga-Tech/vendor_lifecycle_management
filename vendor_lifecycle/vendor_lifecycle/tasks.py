@@ -163,13 +163,12 @@ def auto_disable_expired_temporary_enables():
 	gets its Supplier disabled again and the flag cleared — ready to be
 	temporarily enabled again later if needed. A flag that's already
 	unticked is skipped outright by the filter itself; one that's ticked
-	but still within its window is left alone. A vendor already Reboarded
-	in the meantime is not disabled — only its flag is cleared."""
+	but still within its window is left alone. A vendor no longer Deboarded
+	or in re-boarding is not disabled — only its flag is cleared."""
 	from vendor_lifecycle.vendor_lifecycle.doctype.vendor_deboarding_checklist.vendor_deboarding_checklist import (
 		get_temporary_enable_days,
 		temporary_enable_supplier_update,
 	)
-	from vendor_lifecycle.vendor_lifecycle.vendor_creation import VENDOR_LIFECYCLE_STAGE_REBOARDED
 
 	cutoff = add_to_date(now_datetime(), days=-get_temporary_enable_days())
 	expired = frappe.get_all(
@@ -185,8 +184,11 @@ def auto_disable_expired_temporary_enables():
 		))
 
 	for row in expired:
+		# Only a vendor still Deboarded / in re-boarding goes back to
+		# disabled — one that has moved on (e.g. Reboarded, or deboarding
+		# again) just loses the stale flag.
 		stage = stage_by_supplier.get(row.supplier)
-		if stage != VENDOR_LIFECYCLE_STAGE_REBOARDED:
+		if stage in TEMPORARY_ENABLE_ONLY_STAGES:
 			frappe.db.set_value(
 				"Supplier", row.supplier, temporary_enable_supplier_update(row.supplier, enable=False, stage=stage)
 			)
@@ -378,9 +380,12 @@ def send_compliance_audit_renewal_notices():
 		if not recipients:
 			continue
 		try:
-			send_vendor_lifecycle_email(
-				doctype="Vendor Compliance Audit",
+			# Filed on the Supplier (no Vendor Compliance Audit exists for an upcoming
+			# renewal); still governed by the Vendor Compliance Audit email checkbox.
+			sent = send_vendor_lifecycle_email(
+				doctype="Supplier",
 				name=vendor.name,
+				settings_doctype="Vendor Compliance Audit",
 				template_name=DEFAULT_COMPLIANCE_AUDIT_RENEWAL_DUE_EMAIL_TEMPLATE,
 				context={
 					"vendor_name": vendor.supplier_name,
@@ -391,7 +396,8 @@ def send_compliance_audit_renewal_notices():
 				},
 				recipients=recipients,
 			)
-			actions.append((vendor.name, f"due-soon-{days_remaining}"))
+			if sent:
+				actions.append((vendor.name, f"due-soon-{days_remaining}"))
 		except Exception:
 			frappe.log_error(
 				title="Compliance Audit Renewal: failed to send due-soon email", message=frappe.get_traceback()
@@ -522,9 +528,12 @@ def send_signoff_renewal_notices():
 		if not recipients:
 			continue
 		try:
-			send_vendor_lifecycle_email(
-				doctype="Vendor Sign Off",
+			# Filed on the Supplier (no Vendor Sign Off exists for an upcoming
+			# renewal); still governed by the Vendor Sign Off email checkbox.
+			sent = send_vendor_lifecycle_email(
+				doctype="Supplier",
 				name=vendor.name,
+				settings_doctype="Vendor Sign Off",
 				template_name=DEFAULT_SIGNOFF_RENEWAL_DUE_EMAIL_TEMPLATE,
 				context={
 					"vendor_name": vendor.supplier_name,
@@ -535,7 +544,8 @@ def send_signoff_renewal_notices():
 				},
 				recipients=recipients,
 			)
-			actions.append((vendor.name, f"due-soon-{days_remaining}"))
+			if sent:
+				actions.append((vendor.name, f"due-soon-{days_remaining}"))
 		except Exception:
 			frappe.log_error(
 				title="Sign Off Renewal: failed to send due-soon email", message=frappe.get_traceback()

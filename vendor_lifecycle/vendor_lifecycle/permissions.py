@@ -1,6 +1,8 @@
 # Copyright (c) 2026, Auriga IT and contributors
 # For license information, please see license.txt
 
+import functools
+
 import frappe
 
 INTERNAL_ROLES = ("Vendor Lifecycle Manager", "Vendor Lifecycle User", "System Manager")
@@ -9,6 +11,26 @@ INTERNAL_ROLES = ("Vendor Lifecycle Manager", "Vendor Lifecycle User", "System M
 def is_internal_user(user=None):
 	roles = frappe.get_roles(user or frappe.session.user)
 	return any(role in roles for role in INTERNAL_ROLES)
+
+
+def require_internal_user():
+	# For whitelisted methods that return site-wide or other vendors' data —
+	# a Supplier portal user can call any whitelisted method directly.
+	if not is_internal_user():
+		frappe.throw(frappe._("Not permitted."), frappe.PermissionError)
+
+
+def internal_only(fn):
+	"""Decorator form of require_internal_user — goes ABOVE @cache_source on
+	a dashboard chart source so the check runs even when the cached result
+	is returned."""
+
+	@functools.wraps(fn)
+	def wrapper(*args, **kwargs):
+		require_internal_user()
+		return fn(*args, **kwargs)
+
+	return wrapper
 
 
 def get_supplier_portal_vendors(user):

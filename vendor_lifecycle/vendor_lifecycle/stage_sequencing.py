@@ -3,6 +3,9 @@
 
 import frappe
 
+from vendor_lifecycle.vendor_lifecycle.permissions import require_internal_user
+
+
 def _is_globally_mandatory(fieldname):
 	"""Simple case: a stage's mandatory-ness is just one flat Settings
 	Check field, the same for every vendor regardless of Business Type."""
@@ -129,14 +132,13 @@ def stage_progress_status(doctype, filters, outcome_field, passed_value, force_f
 	cancelled record with no fresh replacement isn't "in progress" or any
 	prior outcome, it's simply as if nothing exists yet. `filters` is
 	{"kyc": kyc_name} for onboarding or {"reboarding_request": name} for
-	re-boarding — only one non-cancelled record can exist per that scope
-	at a time (see require_no_active_document_for_kyc /
-	_require_no_active_signoff_unless_failed), so this is never ambiguous
-	about which record to look at."""
+	re-boarding. Sign Off can have two at once (a Failed one plus its
+	retry) — the newest is the one that counts."""
 	rows = frappe.get_all(
 		doctype,
 		filters={**filters, "docstatus": ["!=", 2]},
 		fields=["docstatus", outcome_field] + ([force_field] if force_field else []),
+		order_by="creation desc",
 		limit=1,
 	)
 	if not rows:
@@ -288,6 +290,10 @@ def require_no_active_document_for_kyc(doc):
 		)
 
 
+# Settled, active vendors — including one being (or that failed to be)
+# deboarded, which is still trading until its Checklist completes.
+RENEWABLE_STAGES = ("Onboarded", "Reboarded", "Deboarding in Process", "Deboarding Failed")
+
 RENEWABLE_EXPIRED_STATUS = {
 	"Vendor Compliance Audit": "Compliance Audit Expired",
 	"Vendor Sign Off": "Contract Expired",
@@ -312,9 +318,19 @@ def require_active_supplier_for_renewal(doc):
 	completely unaffected."""
 	if not doc.is_renewal or not doc.vendor:
 		return
-	disabled, is_frozen, status = frappe.db.get_value(
-		"Supplier", doc.vendor, ["disabled", "is_frozen", "vendor_lifecycle_status"]
+	disabled, is_frozen, status, stage, on_hold = frappe.db.get_value(
+		"Supplier", doc.vendor, ["disabled", "is_frozen", "vendor_lifecycle_status", "vendor_lifecycle_stage", "on_hold"]
 	)
+	if stage not in RENEWABLE_STAGES:
+		frappe.throw(
+			frappe._("{0} is {1} — Renewal/Ad-hoc checks only apply to an onboarded or re-boarded vendor.").format(
+				doc.vendor, frappe.bold(stage or frappe._("not onboarded through Vendor Lifecycle"))
+			)
+		)
+	if on_hold:
+		frappe.throw(
+			frappe._("{0} is on hold — Renewal/Ad-hoc checks only apply to an active vendor.").format(doc.vendor)
+		)
 	# A vendor disabled only because this very check ran out may still be
 	# renewed — that Renewal is the way back (see clear_renewal_expired).
 	if disabled and status == RENEWABLE_EXPIRED_STATUS.get(doc.doctype):
@@ -427,6 +443,52 @@ def block_if_reboarding_request_stopped(doc):
 	)
 
 
+def _run_filters(doctype, scope):
+	"""Filters for the documents of one pipeline run — kyc-scoped onboarding
+	documents exclude re-boarding ones (they share the kyc) and Renewal /
+	Ad-hoc ones."""
+	filters = dict(scope)
+	if "kyc" in scope and frappe.get_meta(doctype).has_field("is_reboarding"):
+		filters["is_reboarding"] = 0
+	if frappe.get_meta(doctype).has_field("is_renewal"):
+		filters["is_renewal"] = 0
+	return filters
+
+
+def standing_stage_failure(scope):
+	"""The failed / rejected Background Check, Compliance Audit or Sampling
+	Evaluation still standing in this run (not cancelled, not
+	force-overridden), if any. While one stands no later stage can be
+	started — get_available_stages / get_reboarding_stage_info offer none,
+	enforce_sequential_creation refuses them."""
+	from vendor_lifecycle.vendor_lifecycle.vendor_creation import get_failed_stage_reason
+
+	return get_failed_stage_reason(**scope, include_sign_off=False)
+
+
+def _block_while_failure_stands(doc, scope):
+	reason = standing_stage_failure(scope)
+	if reason and reason["doctype"] != doc.doctype:
+		frappe.throw(
+			frappe._("{0} failed — cancel or force-override it before starting {1}.").format(
+				frappe.utils.get_link_to_form(reason["doctype"], reason["name"]), doc.doctype
+			)
+		)
+
+
+def _later_stage_document(doctype, scope, docstatus):
+	"""(doctype, name) of the first document of a stage after `doctype` in
+	STAGE_SEQUENCE, in this run, with the given docstatus (int or list)."""
+	names = [name for name, _setting in STAGE_SEQUENCE]
+	for later_doctype in names[names.index(doctype) + 1 :]:
+		name = frappe.db.get_value(
+			later_doctype, {**_run_filters(later_doctype, scope), "docstatus": docstatus}, "name"
+		)
+		if name:
+			return later_doctype, name
+	return None
+
+
 def enforce_sequential_creation(doc):
 	"""Call from validate() on any stage doctype after Vendor KYC. Requires
 	the nearest earlier *mandatory* stage to already be submitted (passed,
@@ -465,6 +527,7 @@ def enforce_sequential_creation(doc):
 		kyc_name = doc.kyc or frappe.db.get_value(
 			"Vendor Reboarding Request", doc.reboarding_request, "original_kyc"
 		)
+		_block_while_failure_stands(doc, {"reboarding_request": doc.reboarding_request})
 		requirement = nearest_requirement(
 			kyc_name, STAGE_SEQUENCE[:idx], settings, reboarding_request=doc.reboarding_request
 		)
@@ -480,6 +543,17 @@ def enforce_sequential_creation(doc):
 	if not doc.kyc:
 		return
 
+	_block_while_failure_stands(doc, {"kyc": doc.kyc})
+	# Onboarding runs in order: an earlier stage can't be added once a later
+	# one exists (e.g. Sampling after Sign Off has started).
+	later = _later_stage_document(doc.doctype, {"kyc": doc.kyc}, ["in", [0, 1]])
+	if later:
+		frappe.throw(
+			frappe._("{0} {1} already exists for this Vendor KYC — {2} can't be added after it.").format(
+				later[0], frappe.utils.get_link_to_form(later[0], later[1]), doc.doctype
+			)
+		)
+
 	requirement = nearest_requirement(doc.kyc, STAGE_SEQUENCE[:idx], settings)
 	if not requirement or requirement[1]:
 		return
@@ -487,7 +561,11 @@ def enforce_sequential_creation(doc):
 	prior_doctype = requirement[0]
 	if prior_doctype == "Vendor KYC":
 		frappe.throw(frappe._("Vendor KYC must be submitted before starting {0}.").format(doc.doctype))
-	frappe.throw(frappe._("A submitted {0} is required before starting {1}.").format(prior_doctype, doc.doctype))
+	frappe.throw(
+		frappe._("A passed (or force-overridden) {0} is required before starting {1}.").format(
+			prior_doctype, doc.doctype
+		)
+	)
 
 
 def enforce_sequential_cancellation(doc):
@@ -526,17 +604,18 @@ def enforce_sequential_cancellation(doc):
 	if not scope_value:
 		return
 
-	for later_doctype in names[names.index(doc.doctype) + 1 :]:
-		existing = frappe.db.get_value(later_doctype, {scope_field: scope_value, "docstatus": 1}, "name")
-		if existing:
+	scope = {scope_field: scope_value}
+	scope_label = (
+		frappe._("Vendor Reboarding Request") if scope_field == "reboarding_request" else frappe._("Vendor KYC")
+	)
+	# A later draft blocks too — it was started on the strength of this one,
+	# and would otherwise be submitted later without it.
+	for docstatus, action in ((1, frappe._("Cancel")), (0, frappe._("Delete the draft"))):
+		later = _later_stage_document(doc.doctype, scope, docstatus)
+		if later:
 			frappe.throw(
-				frappe._(
-					"Cancel {0} ({1}) first — it was created after this {2}, for the same {3}."
-				).format(
-					later_doctype,
-					existing,
-					doc.doctype,
-					frappe._("Vendor Reboarding Request") if scope_field == "reboarding_request" else frappe._("Vendor KYC"),
+				frappe._("{0} {1} ({2}) first — it comes after this {3} in the stage order, for the same {4}.").format(
+					action, later[0], frappe.utils.get_link_to_form(later[0], later[1]), doc.doctype, scope_label
 				)
 			)
 
@@ -567,6 +646,7 @@ def get_available_stages(kyc):
 	each of the three doctypes) lifts the failed/rejected hard stop, same
 	as it lifts nearest_requirement's own check above — Stopped has no
 	such override, that's what Re-open is for."""
+	require_internal_user()
 	empty = {
 		"stages": [],
 		"background_check_failed": False,
@@ -580,19 +660,14 @@ def get_available_stages(kyc):
 	if stopped_state(onboarding_request):
 		return {**empty, "stopped": True}
 
-	if frappe.db.exists(
-		"Vendor Background Check", {"kyc": kyc, "docstatus": 1, "overall_status": "Failed", "force_overridden": 0}
-	):
-		return {**empty, "background_check_failed": True}
-	if frappe.db.exists(
-		"Vendor Compliance Audit", {"kyc": kyc, "docstatus": 1, "outcome": "Failed", "force_overridden": 0}
-	):
-		return {**empty, "compliance_audit_failed": True}
-	if frappe.db.exists(
-		"Vendor Sampling Evaluation",
-		{"kyc": kyc, "docstatus": 1, "evaluation_outcome": "Rejected", "force_overridden": 0},
-	):
-		return {**empty, "sampling_evaluation_rejected": True}
+	failure = standing_stage_failure({"kyc": kyc})
+	if failure:
+		flag = {
+			"Vendor Background Check": "background_check_failed",
+			"Vendor Compliance Audit": "compliance_audit_failed",
+			"Vendor Sampling Evaluation": "sampling_evaluation_rejected",
+		}[failure["doctype"]]
+		return {**empty, flag: True}
 
 	settings = frappe.get_single("Vendor Lifecycle Settings")
 	available = []
@@ -622,6 +697,8 @@ def get_available_stages(kyc):
 			blocked = frappe.db.exists(doctype, {"kyc": kyc, "docstatus": ["in", [0, 1]]})
 		if blocked:
 			continue  # already done
+		if _later_stage_document(doctype, {"kyc": kyc}, ["in", [0, 1]]):
+			continue  # a later stage has started — same rule as enforce_sequential_creation
 
 		requirement = nearest_requirement(kyc, STAGE_SEQUENCE[:i], settings)
 		if not requirement or requirement[1]:
@@ -683,6 +760,9 @@ def force_override_stage(doc, reason):
 		frappe.throw(frappe._("This document has already been force-overridden."))
 	if not (reason or "").strip():
 		frappe.throw(frappe._("A reason is required to force-override this result."))
+
+	block_if_onboarding_request_stopped(doc)
+	block_if_reboarding_request_stopped(doc)
 
 	doc.db_set("force_overridden", 1, update_modified=False)
 	doc.db_set("force_override_reason", reason.strip(), update_modified=False)

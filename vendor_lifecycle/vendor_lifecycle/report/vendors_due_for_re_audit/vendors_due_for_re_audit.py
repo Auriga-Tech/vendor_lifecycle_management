@@ -31,36 +31,41 @@ def get_columns() -> list[dict]:
 
 def get_data(filters: dict | None = None) -> list[dict]:
 	filters = filters or {}
-	conditions = ["vca.docstatus = 1", "vca.outcome = 'Passed'"]
-	params = {}
+	# The Supplier's own compliance_audit_valid_until is the real expiry —
+	# it's what a pass (or force-override) actually set, including the
+	# Audit Date + validity months fallback when the audit's own Valid Until
+	# was left blank. One row per vendor.
+	supplier_filters = {"compliance_audit_valid_until": ["is", "set"]}
 	if filters.get("vendor"):
-		conditions.append("vca.vendor = %(vendor)s")
-		params["vendor"] = filters["vendor"]
+		supplier_filters["name"] = filters["vendor"]
 	if filters.get("valid_until"):
-		conditions.append("vca.valid_until <= %(valid_until)s")
-		params["valid_until"] = filters["valid_until"]
-	where_clause = " and ".join(conditions)
-
-	# Each vendor's own most recent Passed, submitted Compliance Audit — a
-	# vendor with an older Passed audit superseded by a newer one shouldn't
-	# show up under the older audit's now-irrelevant Valid Until.
-	rows = frappe.db.sql(
-		f"""
-		select vca.vendor, s.supplier_name, vca.name as audit, vca.audit_date, vca.valid_until
-		from `tabVendor Compliance Audit` vca
-		inner join (
-			select vendor, max(audit_date) as latest_audit_date
-			from `tabVendor Compliance Audit`
-			where docstatus = 1 and outcome = 'Passed' and vendor is not null and vendor != ''
-			group by vendor
-		) latest on latest.vendor = vca.vendor and latest.latest_audit_date = vca.audit_date
-		left join `tabSupplier` s on s.name = vca.vendor
-		where {where_clause}
-		order by vca.valid_until asc
-		""",
-		params,
-		as_dict=True,
+		supplier_filters["compliance_audit_valid_until"] = ["<=", filters["valid_until"]]
+	suppliers = frappe.get_all(
+		"Supplier",
+		filters=supplier_filters,
+		fields=["name as vendor", "supplier_name", "compliance_audit_valid_until as valid_until"],
+		order_by="compliance_audit_valid_until asc",
 	)
+	if not suppliers:
+		return []
+
+	# Each vendor's most recent submitted audit that gave it that validity.
+	latest_audit = {}
+	for audit in frappe.get_all(
+		"Vendor Compliance Audit",
+		filters={"vendor": ["in", [row.vendor for row in suppliers]], "docstatus": 1},
+		or_filters={"outcome": "Passed", "force_overridden": 1},
+		fields=["name", "vendor", "audit_date"],
+		order_by="audit_date desc, creation desc",
+	):
+		latest_audit.setdefault(audit.vendor, audit)
+
+	rows = []
+	for row in suppliers:
+		audit = latest_audit.get(row.vendor)
+		row.audit = audit.name if audit else None
+		row.audit_date = audit.audit_date if audit else None
+		rows.append(row)
 
 	today = getdate(nowdate())
 	for row in rows:

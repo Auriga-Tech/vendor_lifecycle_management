@@ -61,7 +61,7 @@ class VendorDeboardingRequest(Document):
 		stage = frappe.db.get_value("Supplier", self.vendor, "vendor_lifecycle_stage")
 		if stage in BLOCKED_STAGES_FOR_NEW_DEBOARDING_REQUEST:
 			frappe.throw(
-				frappe._("A Deboarding Request cannot be created while {0}'s Vendor Lifecycle Stage is {1}.").format(
+				frappe._("A Deboarding Request cannot be created or submitted while {0}'s Vendor Lifecycle Stage is {1}.").format(
 					self.vendor, frappe.bold(stage)
 				)
 			)
@@ -74,7 +74,13 @@ class VendorDeboardingRequest(Document):
 		# "Approved" — see VendorDeboardingChecklist.on_submit()).
 		blocking = frappe.db.exists(
 			"Vendor Deboarding Request",
-			{"vendor": self.vendor, "docstatus": 1, "status": "Approved", "is_stopped": 0},
+			{
+				"vendor": self.vendor,
+				"docstatus": 1,
+				"status": "Approved",
+				"is_stopped": 0,
+				"name": ["!=", self.name or ""],
+			},
 		)
 		if blocking:
 			frappe.throw(
@@ -93,6 +99,8 @@ class VendorDeboardingRequest(Document):
 			return
 		before = self.get_doc_before_save()
 		if before and before.status == "Rejected":
+			if self._action == "submit":
+				frappe.throw(frappe._("A rejected Vendor Deboarding Request cannot be submitted."))
 			frappe.throw(frappe._("This Vendor Deboarding Request has been rejected and can no longer be edited."))
 
 	def _validate_ratings_scored(self):
@@ -110,6 +118,10 @@ class VendorDeboardingRequest(Document):
 	def before_submit(self):
 		if self.status == "Rejected":
 			frappe.throw(frappe._("A rejected Vendor Deboarding Request cannot be submitted."))
+		# Checked again here, not just on creation — two drafts made while
+		# the vendor was free, or an old draft submitted after the vendor was
+		# deboarded, must not start a second deboarding.
+		self._require_stage_allows_new_request()
 
 	def before_cancel(self):
 		if self.is_stopped:

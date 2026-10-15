@@ -60,10 +60,17 @@ def after_install():
 	# Roles, Custom Fields, Property Setters, Supplier Connections and the
 	# ERPNext permissions go in first (see vendor_lifecycle/setup.py) - the
 	# Vendor KYC Workflow and later seeds need the roles to exist.
+	#
+	# Frappe marks every patch in patches.txt as already done on a fresh
+	# install without running it, so the default records the seed_*_once
+	# patches create for existing sites are created here instead
+	# (seed_defaults). Settings defaults come first: some seeds save
+	# Settings, which validates its mandatory fields.
 	from vendor_lifecycle.setup import install
 
 	install()
 	after_migrate()
+	seed_defaults()
 
 
 # There used to be a resync_default_email_template_styling() here, run on
@@ -85,6 +92,50 @@ def after_migrate():
 	create_missing()
 	sync_standard_files()
 	backfill_settings_defaults()
+
+
+def seed_defaults():
+	"""Every default record the app ships — masters and templates, Email
+	Templates, the Vendor KYC / Reboarding Request Workflows, the
+	sampling-mandatory Business Types and the Form Tours. Run once, from
+	after_install only (never on migrate), in the same order as the
+	seed_*_once patches that created them on sites installed earlier. Each
+	function skips anything that already exists."""
+	_ensure_compliance_check_types()
+	_ensure_default_compliance_check_template()
+	_ensure_default_checklist_template()
+	backfill_default_satisfaction_rating_template()
+	backfill_default_compliance_check_sources()
+	backfill_default_coverage_types()
+	backfill_default_licenses_and_permits_masters()
+	backfill_default_insurance_masters()
+	backfill_default_rating_criteria_template()
+	backfill_default_sampling_evaluation_template()
+	seed_indian_states()
+	backfill_default_deboarding_rating_template()
+	backfill_default_deboarding_checklist_template()
+
+	backfill_default_signoff_email_template()
+	backfill_default_signoff_received_email_template()
+	backfill_default_signoff_passed_email_template()
+	backfill_default_signoff_failed_email_template()
+	backfill_default_vendor_lifecycle_stage_email_templates()
+	backfill_default_satisfaction_survey_email_templates()
+	backfill_default_deboarding_request_email_templates()
+	backfill_default_checklist_task_email_templates()
+	backfill_default_clearance_certificate_email_templates()
+	backfill_default_signoff_followup_email_template()
+	backfill_default_manual_attach_needed_email_template()
+	backfill_default_reboarding_request_email_templates()
+	backfill_default_reboarding_request_creator_email_templates()
+	backfill_default_compliance_audit_renewal_email_templates()
+	backfill_default_signoff_renewal_email_templates()
+	backfill_default_attachment_save_failed_email_template()
+
+	install_vendor_kyc_workflow()
+	install_vendor_reboarding_request_workflow()
+	backfill_sampling_mandatory_business_types()
+	_install_sample_form_tours()
 
 
 # Business Types considered "service nature", plus "Other" (too ambiguous to
@@ -751,6 +802,9 @@ def _ensure_default_compliance_check_template():
 
 
 SETTINGS_FIELD_DEFAULTS = {
+	"enable_satisfaction_surveys": 1,
+	"survey_cadence": "Quarterly",
+	"reboarding_request_emails": 1,
 	"duplicate_request_handling": "Warn",
 	"require_onboarding_request_for_kyc": 1,
 	"duplicate_kyc_handling": "Stop",
@@ -760,6 +814,7 @@ SETTINGS_FIELD_DEFAULTS = {
 	"require_tax_id": 0,
 	"temporary_enable_days": 7,
 	"background_check_mandatory": 1,
+	"audit_mandatory": 1,
 	"reference_result_method": "Average",
 	"reference_minimum_average_rating": 3,
 	"background_check_result_method": "Each Reference Must Pass",

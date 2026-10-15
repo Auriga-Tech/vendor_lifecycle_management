@@ -365,6 +365,8 @@ class VendorOnboardingRequest(Document):
 		for k in kycs:
 			if k.status == "Approved":
 				effective_states.append("Approved")
+			elif k.status == "Trashed":
+				effective_states.append("Trashed")
 			elif is_kyc_rejected(k.name):
 				effective_states.append("Rejected")
 			elif k.status in ("In Progress", "Approval Pending"):
@@ -379,6 +381,8 @@ class VendorOnboardingRequest(Document):
 			return "In Progress"
 		if "Rejected" in effective_states:
 			return "Rejected"
+		if "Trashed" in effective_states:
+			return "Trashed"
 		return "Not Started"
 
 	def _stage_status(self, doctype, filters, outcome_field, passed_value, force_field):

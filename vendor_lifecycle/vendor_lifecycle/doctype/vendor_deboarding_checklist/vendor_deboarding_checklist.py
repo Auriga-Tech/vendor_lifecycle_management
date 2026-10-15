@@ -555,7 +555,24 @@ class VendorDeboardingChecklist(Document):
 		frappe.db.set_value("Vendor Deboarding Request", self.deboarding_request, "status", "Vendor Disabled")
 
 	def before_cancel(self):
+		self._block_cancel_while_newer_checklist_exists()
 		self._block_cancel_once_vendor_moved_on()
+
+	def _block_cancel_while_newer_checklist_exists(self):
+		# Deboarding rounds unwind newest first — an older round's checklist
+		# can't be cancelled while a later round's one is still submitted.
+		newer = frappe.db.get_value(
+			"Vendor Deboarding Checklist",
+			{"supplier": self.supplier, "docstatus": 1, "creation": [">", self.creation]},
+			"name",
+			order_by="creation desc",
+		)
+		if newer:
+			frappe.throw(
+				frappe._("Cancel the newer Vendor Deboarding Checklist {0} first.").format(
+					frappe.utils.get_link_to_form(self.doctype, newer)
+				)
+			)
 
 	def _block_cancel_once_vendor_moved_on(self):
 		# Cancelling puts the vendor back into "Deboarding in Process" —
@@ -742,6 +759,18 @@ def get_supplier_temporary_enable_checklist_name(supplier):
 def get_supplier_temporary_enable_checklist(supplier):
 	name = get_supplier_temporary_enable_checklist_name(supplier)
 	return frappe.get_doc("Vendor Deboarding Checklist", name) if name else None
+
+
+def clear_temporary_enable(supplier):
+	"""Drops any open temporary-enable window on this Supplier's checklists
+	without touching the Supplier — called once re-boarding is decided
+	(passed or failed), so a leftover window can't disable the vendor later."""
+	for name in frappe.get_all(
+		"Vendor Deboarding Checklist", filters={"supplier": supplier, "is_temporarily_enabled": 1}, pluck="name"
+	):
+		frappe.db.set_value(
+			"Vendor Deboarding Checklist", name, {"is_temporarily_enabled": 0, "temporarily_enabled_on": None}
+		)
 
 
 def temporary_enable_supplier_update(supplier, enable, stage=None):
