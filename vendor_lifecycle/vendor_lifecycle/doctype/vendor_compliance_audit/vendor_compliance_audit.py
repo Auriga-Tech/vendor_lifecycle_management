@@ -850,9 +850,10 @@ class VendorComplianceAudit(Document):
 
 		if self.outcome == "Passed":
 			if disable_on_expiry:
-				expired = not previous_valid_until or frappe.utils.getdate(previous_valid_until) < frappe.utils.getdate(
-					frappe.utils.today()
-				)
+				# No earlier pass means no validity is tracked - nothing to expire.
+				expired = bool(previous_valid_until) and frappe.utils.getdate(
+					previous_valid_until
+				) < frappe.utils.getdate(frappe.utils.today())
 				if expired:
 					set_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 			return
@@ -864,9 +865,9 @@ class VendorComplianceAudit(Document):
 			# is the only real record of whether it's actually still
 			# expired.
 			current_valid_until = frappe.db.get_value("Supplier", self.vendor, "compliance_audit_valid_until")
-			expired = not current_valid_until or frappe.utils.getdate(current_valid_until) < frappe.utils.getdate(
-				frappe.utils.today()
-			)
+			expired = bool(current_valid_until) and frappe.utils.getdate(
+				current_valid_until
+			) < frappe.utils.getdate(frappe.utils.today())
 			if not expired:
 				clear_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED)
 

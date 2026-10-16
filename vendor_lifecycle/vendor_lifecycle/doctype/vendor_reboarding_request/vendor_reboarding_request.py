@@ -46,6 +46,16 @@ DEFAULT_REBOARDING_REQUEST_APPROVED_CREATOR_EMAIL_TEMPLATE = "Vendor Reboarding 
 DEFAULT_REBOARDING_REQUEST_REJECTED_CREATOR_EMAIL_TEMPLATE = "Vendor Reboarding Request Rejected - Creator Copy"
 
 
+def finished_reboarding_requests():
+	"""Reboarding Requests whose re-boarding Sign Off passed. Their status
+	stays "Approved" for good, so they must never count as in progress."""
+	return frappe.get_all(
+		"Vendor Sign Off",
+		filters={"is_reboarding": 1, "docstatus": 1, "sign_off_failed": 0, "reboarding_request": ["is", "set"]},
+		pluck="reboarding_request",
+	)
+
+
 class VendorReboardingRequest(Document):
 	def before_insert(self):
 		self._require_stage_allows_new_request()
@@ -79,7 +89,13 @@ class VendorReboardingRequest(Document):
 		# stage documents' own).
 		blocking = frappe.db.exists(
 			"Vendor Reboarding Request",
-			{"vendor": self.vendor, "docstatus": 1, "status": "Approved", "is_stopped": 0},
+			{
+				"vendor": self.vendor,
+				"docstatus": 1,
+				"status": "Approved",
+				"is_stopped": 0,
+				"name": ["not in", finished_reboarding_requests() or [""]],
+			},
 		)
 		if blocking:
 			frappe.throw(
@@ -302,11 +318,7 @@ class VendorReboardingRequest(Document):
 		# A request whose re-boarding Sign Off passed is finished — it no
 		# longer occupies the slot either, or a vendor deboarded again could
 		# never be re-boarded a second time.
-		finished = frappe.get_all(
-			"Vendor Sign Off",
-			filters={"is_reboarding": 1, "docstatus": 1, "sign_off_failed": 0, "reboarding_request": ["is", "set"]},
-			pluck="reboarding_request",
-		)
+		finished = finished_reboarding_requests()
 		if frappe.db.exists(
 			"Vendor Reboarding Request",
 			{

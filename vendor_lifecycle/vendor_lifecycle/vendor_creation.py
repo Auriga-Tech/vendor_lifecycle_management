@@ -722,23 +722,61 @@ def restore_status_after_draft_deleted(doc, in_progress_status):
 	frappe.db.set_value("Supplier", doc.vendor, "vendor_lifecycle_status", resolve_run_status(**_run_scope(doc)))
 
 
+# Each renewal-expiry status -> the Supplier date it tracks and the
+# Settings checkbox that makes running out of it disable the vendor.
+RENEWAL_EXPIRY_SOURCES = {
+	VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED: (
+		"compliance_audit_valid_until",
+		"disable_vendor_on_compliance_audit_expiry",
+	),
+	VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED: ("contract_valid_until", "disable_vendor_on_contract_expiry"),
+}
+
+
 def set_renewal_expired(vendor, expired_status):
 	"""Disable an active vendor whose Compliance Audit / contract ran out
-	(expiry job, or a Failed Renewal) and say why in its status."""
+	(expiry job, or a Failed Renewal) and say why in its status. Only for a
+	vendor a Renewal applies to - a deboarded, mid-pipeline or on-hold
+	vendor keeps its own status."""
+	from vendor_lifecycle.vendor_lifecycle.stage_sequencing import RENEWABLE_STAGES
+
+	stage, on_hold = frappe.db.get_value("Supplier", vendor, ["vendor_lifecycle_stage", "on_hold"])
+	if stage not in RENEWABLE_STAGES or on_hold:
+		return
 	frappe.db.set_value("Supplier", vendor, {"disabled": 1, "vendor_lifecycle_status": expired_status})
 
 
 def clear_renewal_expired(vendor, expired_status):
 	"""Undo set_renewal_expired() once a Renewal of that type passes (or the
 	Failed one is cancelled while still in date) — only if expired_status is
-	still the reason shown and no pipeline failure is disabling the vendor."""
+	still the reason shown and no pipeline failure is disabling the vendor.
+	If the other renewal check has run out too, the vendor stays disabled
+	under that one instead."""
 	if frappe.db.get_value("Supplier", vendor, "vendor_lifecycle_status") != expired_status:
 		return
 	if get_disable_reason_for_supplier(vendor):
 		return
+	other_expired_status = _other_renewal_expiry(vendor, expired_status)
+	if other_expired_status:
+		frappe.db.set_value("Supplier", vendor, "vendor_lifecycle_status", other_expired_status)
+		return
 	frappe.db.set_value(
 		"Supplier", vendor, {"disabled": 0, "vendor_lifecycle_status": VENDOR_LIFECYCLE_STATUS_ACTIVE}
 	)
+
+
+def _other_renewal_expiry(vendor, expired_status):
+	"""The other renewal-expiry status whose date has passed (with its
+	disable checkbox on), or None."""
+	settings = frappe.get_single("Vendor Lifecycle Settings")
+	today = frappe.utils.getdate(frappe.utils.today())
+	for status, (date_field, disable_checkbox) in RENEWAL_EXPIRY_SOURCES.items():
+		if status == expired_status or not settings.get(disable_checkbox):
+			continue
+		valid_until = frappe.db.get_value("Supplier", vendor, date_field)
+		if valid_until and frappe.utils.getdate(valid_until) < today:
+			return status
+	return None
 
 
 def revert_stage_result(vendor, *, kyc=None, reboarding_request=None):
@@ -1006,9 +1044,7 @@ def send_vendor_lifecycle_email(
 			"Email Account", settings.vendor_lifecycle_email_account, ["name", "email_id"], as_dict=True
 		)
 
-	from frappe.core.doctype.communication.email import make as make_communication
-
-	result = make_communication(
+	result = _make_system_communication(
 		doctype=doctype,
 		name=name,
 		subject=subject,
@@ -1023,6 +1059,17 @@ def send_vendor_lifecycle_email(
 		comm.db_set("email_account", account.name, update_modified=False)
 	comm.send_email()
 	return True
+
+
+def _make_system_communication(**kwargs):
+	"""Communication for an automatic notification, not a user's own "send
+	email" action — so no "email" permission check on the reference
+	document (a Guest web-form submission has none). Same internal
+	function Frappe's own Notification doctype uses; add_signature=False
+	matches what the whitelisted make() passes."""
+	from frappe.core.doctype.communication.email import _make
+
+	return _make(add_signature=False, **kwargs)
 
 
 DEFAULT_MANUAL_ATTACH_NEEDED_EMAIL_TEMPLATE = "Vendor Lifecycle Manual Attachment Needed"
@@ -1111,9 +1158,7 @@ def _send_internal_document_email(doctype, name, owner, template_name, context):
 	subject = template.get_formatted_subject(context)
 	message = template.get_formatted_response(context)
 
-	from frappe.core.doctype.communication.email import make as make_communication
-
-	make_communication(
+	_make_system_communication(
 		doctype=doctype,
 		name=name,
 		subject=subject,

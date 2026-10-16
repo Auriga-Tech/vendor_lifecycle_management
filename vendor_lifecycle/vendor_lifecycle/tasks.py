@@ -355,7 +355,7 @@ def send_compliance_audit_renewal_notices():
 		# stage_sequencing.require_active_supplier_for_renewal) — no draft,
 		# email or expiry disable for one deboarded, mid-pipeline or on hold.
 		filters={"compliance_audit_valid_until": ["is", "set"], "vendor_lifecycle_stage": ["in", RENEWABLE_STAGES], "on_hold": 0},
-		fields=["name", "supplier_name", "compliance_audit_valid_until", "disabled"],
+		fields=["name", "supplier_name", "compliance_audit_valid_until", "disabled", "vendor_lifecycle_status"],
 	)
 
 	actions = []
@@ -370,6 +370,11 @@ def send_compliance_audit_renewal_notices():
 			continue
 
 		if days_remaining not in RENEWAL_DUE_SOON_DAYS:
+			continue
+
+		# Disabled for any other reason, it can't be renewed yet (see
+		# require_active_supplier_for_renewal) - no draft, no email.
+		if vendor.disabled and vendor.vendor_lifecycle_status != VENDOR_LIFECYCLE_STATUS_COMPLIANCE_AUDIT_EXPIRED:
 			continue
 
 		if settings.get("auto_create_compliance_audit_renewal") and not frappe.db.exists(
@@ -510,7 +515,7 @@ def send_signoff_renewal_notices():
 		# stage_sequencing.require_active_supplier_for_renewal) — no draft,
 		# email or expiry disable for one deboarded, mid-pipeline or on hold.
 		filters={"contract_valid_until": ["is", "set"], "vendor_lifecycle_stage": ["in", RENEWABLE_STAGES], "on_hold": 0},
-		fields=["name", "supplier_name", "contract_valid_until", "disabled"],
+		fields=["name", "supplier_name", "contract_valid_until", "disabled", "vendor_lifecycle_status"],
 	)
 
 	actions = []
@@ -525,6 +530,11 @@ def send_signoff_renewal_notices():
 			continue
 
 		if days_remaining not in RENEWAL_DUE_SOON_DAYS:
+			continue
+
+		# Disabled for any other reason, it can't be renewed yet (see
+		# require_active_supplier_for_renewal) - no draft, no email.
+		if vendor.disabled and vendor.vendor_lifecycle_status != VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED:
 			continue
 
 		if settings.get("auto_create_signoff_renewal") and not frappe.db.exists(

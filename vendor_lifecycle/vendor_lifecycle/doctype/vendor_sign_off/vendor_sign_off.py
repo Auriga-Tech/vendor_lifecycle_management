@@ -964,10 +964,11 @@ class VendorSignOff(Document):
 
 		if not self.sign_off_failed:
 			if disable_on_expiry:
-				expired = (
-					not previous_contract_valid_until
-					or frappe.utils.getdate(previous_contract_valid_until) < frappe.utils.getdate(frappe.utils.today())
-				)
+				# No earlier dated pass means no contract date is tracked -
+				# nothing to expire.
+				expired = bool(previous_contract_valid_until) and frappe.utils.getdate(
+					previous_contract_valid_until
+				) < frappe.utils.getdate(frappe.utils.today())
 				if expired:
 					set_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED)
 			return
@@ -979,10 +980,9 @@ class VendorSignOff(Document):
 			# Supplier's own current contract_valid_until is the only real
 			# record of whether the contract is actually still expired.
 			current_contract_valid_until = frappe.db.get_value("Supplier", self.vendor, "contract_valid_until")
-			expired = (
-				not current_contract_valid_until
-				or frappe.utils.getdate(current_contract_valid_until) < frappe.utils.getdate(frappe.utils.today())
-			)
+			expired = bool(current_contract_valid_until) and frappe.utils.getdate(
+				current_contract_valid_until
+			) < frappe.utils.getdate(frappe.utils.today())
 			if not expired:
 				clear_renewal_expired(self.vendor, VENDOR_LIFECYCLE_STATUS_CONTRACT_EXPIRED)
 

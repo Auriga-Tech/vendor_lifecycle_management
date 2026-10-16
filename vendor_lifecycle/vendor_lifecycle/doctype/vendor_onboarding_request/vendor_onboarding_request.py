@@ -31,17 +31,20 @@ DEFAULT_VENDOR_LIFECYCLE_PASSED_EMAIL_TEMPLATE = "Vendor Lifecycle Stage Passed"
 # auto-calculated from establishment_date (optional), not something to
 # demand from whoever's filling this in.
 COMMON_BUSINESS_DETAIL_FIELDS = [
-	"estimated_monthly_production_capacity",
 	"specialization",
 	"team_size",
 ]
 
+# Shown (optional) for "Other" too, so copied to the KYC whenever filled in -
+# but only required where the form itself marks it mandatory.
+CAPACITY_FIELD = "estimated_monthly_production_capacity"
+
 # Extra fields required only for the matching business type.
 TYPE_SPECIFIC_MANDATORY_FIELDS = {
-	"Manufacturer": [],
+	"Manufacturer": [CAPACITY_FIELD],
 	"Trader": ["brands_distributed", "minimum_order_quantity"],
 	"Service Provider": ["service_types_offered", "turnaround_time"],
-	"Contractor / Job Worker": ["scope_of_work", "equipment_provided_by"],
+	"Contractor / Job Worker": [CAPACITY_FIELD, "scope_of_work", "equipment_provided_by"],
 	"Logistics / Transporter": ["fleet_size", "coverage_area"],
 	"Freelancer / Consultant": ["areas_of_expertise", "availability_hours_per_week"],
 	"Raw Material Supplier": ["materials_supplied", "certification_standards"],
@@ -205,12 +208,15 @@ class VendorOnboardingRequest(Document):
 		if self.is_stopped:
 			frappe.throw(frappe._("This request has been stopped — see its Comments for why — re-open it if you want to proceed."))
 
-		# A Rejected KYC is a dead attempt — same as everywhere else this app
-		# checks for a duplicate KYC (see _check_duplicate_kyc_for_request on
-		# Vendor KYC itself) — never blocks a fresh one, regardless of this
-		# setting. The setting only governs a genuine duplicate: an earlier
-		# KYC for this same request that's still Draft/In Progress/Approved.
-		existing_kyc_names = frappe.get_all("Vendor KYC", filters={"onboarding_request": self.name}, pluck="name")
+		# A Rejected, Trashed or Cancelled KYC is a dead attempt — same as
+		# everywhere else this app checks for a duplicate KYC (see
+		# _check_duplicate_kyc_for_request on Vendor KYC itself) — never blocks
+		# a fresh one, regardless of this setting. The setting only governs a
+		# genuine duplicate: an earlier KYC for this same request that's still
+		# Draft/In Progress/Approved.
+		existing_kyc_names = frappe.get_all(
+			"Vendor KYC", filters={"onboarding_request": self.name, "docstatus": ["!=", 2]}, pluck="name"
+		)
 		duplicate = next((name for name in existing_kyc_names if not is_kyc_rejected(name)), None)
 		if duplicate:
 			handling = frappe.db.get_single_value("Vendor Lifecycle Settings", "duplicate_kyc_handling") or "Stop"
@@ -247,7 +253,9 @@ class VendorOnboardingRequest(Document):
 			"years_in_business": self.years_in_business,
 		}
 		# Covers "Other" -> other_business_type too, via TYPE_SPECIFIC_MANDATORY_FIELDS.
-		for fieldname in COMMON_BUSINESS_DETAIL_FIELDS + TYPE_SPECIFIC_MANDATORY_FIELDS.get(self.business_type, []):
+		for fieldname in dict.fromkeys(
+			[CAPACITY_FIELD] + COMMON_BUSINESS_DETAIL_FIELDS + TYPE_SPECIFIC_MANDATORY_FIELDS.get(self.business_type, [])
+		):
 			values[fieldname] = self.get(fieldname)
 
 		return values

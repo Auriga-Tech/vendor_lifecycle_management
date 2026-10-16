@@ -53,6 +53,8 @@ def get_kyc_data(filters: dict | None = None) -> list[dict]:
 
 	# Each stage's own latest (by creation) record for the KYC — a vendor
 	# who redid a stage shouldn't show stale data from an earlier attempt.
+	# Onboarding documents only: re-boarding and renewal ones carry the same
+	# KYC, and a cancelled one no longer counts.
 	rows = frappe.db.sql(
 		f"""
 		select
@@ -63,19 +65,19 @@ def get_kyc_data(filters: dict | None = None) -> list[dict]:
 			(
 				select bc.outcome
 				from `tabVendor Background Check` bc
-				where bc.kyc = vk.name
+				where bc.kyc = vk.name and bc.is_reboarding = 0 and bc.docstatus < 2
 				order by bc.creation desc limit 1
 			) as background_check_status,
 			(
 				select ca.outcome
 				from `tabVendor Compliance Audit` ca
-				where ca.kyc = vk.name
+				where ca.kyc = vk.name and ca.is_reboarding = 0 and ca.docstatus < 2 and ca.is_renewal = 0
 				order by ca.creation desc limit 1
 			) as compliance_audit_status,
 			(
 				select se.evaluation_outcome
 				from `tabVendor Sampling Evaluation` se
-				where se.kyc = vk.name
+				where se.kyc = vk.name and se.is_reboarding = 0 and se.docstatus < 2 and se.is_renewal = 0
 				order by se.creation desc limit 1
 			) as sampling_evaluation_status,
 			(
@@ -83,7 +85,7 @@ def get_kyc_data(filters: dict | None = None) -> list[dict]:
 					(case when so.sign_off_failed then 'Failed' else 'Signed' end)
 				else 'Draft' end
 				from `tabVendor Sign Off` so
-				where so.kyc = vk.name
+				where so.kyc = vk.name and so.is_reboarding = 0 and so.docstatus < 2 and so.is_renewal = 0
 				order by so.creation desc limit 1
 			) as sign_off_status
 		from `tabVendor KYC` vk
@@ -147,19 +149,19 @@ def get_request_data(filters: dict | None = None) -> list[dict]:
 			(
 				select bc.outcome
 				from `tabVendor Background Check` bc
-				where bc.kyc = {latest_kyc_for_request}
+				where bc.kyc = {latest_kyc_for_request} and bc.is_reboarding = 0 and bc.docstatus < 2
 				order by bc.creation desc limit 1
 			) as background_check_status,
 			(
 				select ca.outcome
 				from `tabVendor Compliance Audit` ca
-				where ca.kyc = {latest_kyc_for_request}
+				where ca.kyc = {latest_kyc_for_request} and ca.is_reboarding = 0 and ca.docstatus < 2 and ca.is_renewal = 0
 				order by ca.creation desc limit 1
 			) as compliance_audit_status,
 			(
 				select se.evaluation_outcome
 				from `tabVendor Sampling Evaluation` se
-				where se.kyc = {latest_kyc_for_request}
+				where se.kyc = {latest_kyc_for_request} and se.is_reboarding = 0 and se.docstatus < 2 and se.is_renewal = 0
 				order by se.creation desc limit 1
 			) as sampling_evaluation_status,
 			(
@@ -167,7 +169,7 @@ def get_request_data(filters: dict | None = None) -> list[dict]:
 					(case when so.sign_off_failed then 'Failed' else 'Signed' end)
 				else 'Draft' end
 				from `tabVendor Sign Off` so
-				where so.kyc = {latest_kyc_for_request}
+				where so.kyc = {latest_kyc_for_request} and so.is_reboarding = 0 and so.docstatus < 2 and so.is_renewal = 0
 				order by so.creation desc limit 1
 			) as sign_off_status
 		from `tabVendor Onboarding Request` vor
