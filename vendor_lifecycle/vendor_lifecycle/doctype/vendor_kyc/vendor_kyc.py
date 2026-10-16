@@ -141,7 +141,12 @@ class VendorKYC(Document):
 		self.flags.ignore_mandatory = True
 		self.status = "Rejected"
 		self.save()
-		self._notify_rejected()
+
+	def on_update(self):
+		# One place for the rejection email, whichever way it got Rejected:
+		# the Workflow's own Reject action or reject() above.
+		if self.status == "Rejected" and self.has_value_changed("status"):
+			self._notify_rejected()
 
 	def _notify_rejected(self):
 		try:

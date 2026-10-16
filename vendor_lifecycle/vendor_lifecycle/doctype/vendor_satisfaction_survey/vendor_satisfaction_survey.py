@@ -152,7 +152,7 @@ class VendorSatisfactionSurvey(Document):
 		)
 
 
-PORTAL_LOCKED_FIELDS = ("vendor", "period", "survey_date", "is_system_generated", "last_reminder_sent")
+PORTAL_LOCKED_FIELDS = ("vendor", "period", "survey_date", "is_system_generated", "last_reminder_sent", "amended_from")
 
 
 def _survey_email_context(survey, contact):

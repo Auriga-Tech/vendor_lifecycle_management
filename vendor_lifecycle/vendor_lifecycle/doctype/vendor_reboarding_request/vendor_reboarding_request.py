@@ -531,6 +531,24 @@ class VendorReboardingRequest(Document):
 			frappe.throw(frappe._("This request isn't stopped."))
 		if not (reason or "").strip():
 			frappe.throw(frappe._("A reason is required to re-open this request."))
+		# A newer request took over while this one was stopped - re-opening
+		# (and then cancelling) this one would reset the vendor under it.
+		newer = frappe.db.exists(
+			"Vendor Reboarding Request",
+			{
+				"vendor": self.vendor,
+				"docstatus": ["in", [0, 1]],
+				"workflow_state": ["not in", ["Trashed", "Rejected"]],
+				"is_stopped": 0,
+				"name": ["not in", [self.name] + finished_reboarding_requests()],
+			},
+		)
+		if newer:
+			frappe.throw(
+				frappe._("{0} is now in progress for this vendor, so this request stays stopped.").format(
+					frappe.get_desk_link("Vendor Reboarding Request", newer)
+				)
+			)
 
 		self.db_set("is_stopped", 0)
 		self.add_comment("Comment", text=frappe._("Re-opened: {0}").format(reason.strip()))

@@ -64,19 +64,19 @@ def get_data(filters: dict | None = None) -> list[dict]:
 			(
 				select bc.overall_status
 				from `tabVendor Background Check` bc
-				where bc.reboarding_request = vrr.name
+				where bc.reboarding_request = vrr.name and bc.docstatus < 2
 				order by bc.creation desc limit 1
 			) as background_check_status,
 			(
 				select ca.outcome
 				from `tabVendor Compliance Audit` ca
-				where ca.reboarding_request = vrr.name
+				where ca.reboarding_request = vrr.name and ca.docstatus < 2
 				order by ca.creation desc limit 1
 			) as compliance_audit_status,
 			(
 				select se.evaluation_outcome
 				from `tabVendor Sampling Evaluation` se
-				where se.reboarding_request = vrr.name
+				where se.reboarding_request = vrr.name and se.docstatus < 2
 				order by se.creation desc limit 1
 			) as sampling_evaluation_status,
 			(
@@ -84,7 +84,7 @@ def get_data(filters: dict | None = None) -> list[dict]:
 					(case when so.sign_off_failed then 'Failed' else 'Signed' end)
 				else 'Draft' end
 				from `tabVendor Sign Off` so
-				where so.reboarding_request = vrr.name
+				where so.reboarding_request = vrr.name and so.docstatus < 2
 				order by so.creation desc limit 1
 			) as sign_off_status
 		from `tabVendor Reboarding Request` vrr

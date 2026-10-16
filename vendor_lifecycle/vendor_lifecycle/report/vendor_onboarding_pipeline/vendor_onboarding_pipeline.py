@@ -63,7 +63,7 @@ def get_kyc_data(filters: dict | None = None) -> list[dict]:
 			vk.status as kyc_status,
 			vk.supplier as vendor,
 			(
-				select bc.outcome
+				select bc.overall_status
 				from `tabVendor Background Check` bc
 				where bc.kyc = vk.name and bc.is_reboarding = 0 and bc.docstatus < 2
 				order by bc.creation desc limit 1
@@ -147,7 +147,7 @@ def get_request_data(filters: dict | None = None) -> list[dict]:
 			(select vk.status from `tabVendor KYC` vk where vk.name = {latest_kyc_for_request}) as kyc_status,
 			(select vk.supplier from `tabVendor KYC` vk where vk.name = {latest_kyc_for_request}) as vendor,
 			(
-				select bc.outcome
+				select bc.overall_status
 				from `tabVendor Background Check` bc
 				where bc.kyc = {latest_kyc_for_request} and bc.is_reboarding = 0 and bc.docstatus < 2
 				order by bc.creation desc limit 1
