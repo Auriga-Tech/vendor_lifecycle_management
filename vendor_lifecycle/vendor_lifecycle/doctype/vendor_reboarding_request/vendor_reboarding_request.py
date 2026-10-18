@@ -385,11 +385,22 @@ class VendorReboardingRequest(Document):
 		self.db_set("status", "Approved")
 		if self.vendor:
 			# Remembered so cancelling this request can put the vendor back.
-			previous_stage, previous_status = frappe.db.get_value(
-				"Supplier", self.vendor, ["vendor_lifecycle_stage", "vendor_lifecycle_status"]
+			previous_stage, previous_status, disabled = frappe.db.get_value(
+				"Supplier", self.vendor, ["vendor_lifecycle_stage", "vendor_lifecycle_status", "disabled"]
 			)
 			self.db_set({"previous_vendor_stage": previous_stage, "previous_vendor_status": previous_status})
-			frappe.db.set_value("Supplier", self.vendor, "vendor_lifecycle_stage", VENDOR_LIFECYCLE_STAGE_REBOARDING)
+			# A fresh attempt starts clean - never carry over a stopped earlier
+			# request's stage result (e.g. "Re-Background Check Failed").
+			frappe.db.set_value(
+				"Supplier",
+				self.vendor,
+				{
+					"vendor_lifecycle_stage": VENDOR_LIFECYCLE_STAGE_REBOARDING,
+					"vendor_lifecycle_status": VENDOR_LIFECYCLE_STATUS_DISABLED
+					if disabled
+					else TEMPORARILY_ENABLED_STATUS,
+				},
+			)
 		self._notify_reboarding_email(DEFAULT_REBOARDING_REQUEST_APPROVED_EMAIL_TEMPLATE)
 		self._notify_creator_email(DEFAULT_REBOARDING_REQUEST_APPROVED_CREATOR_EMAIL_TEMPLATE)
 

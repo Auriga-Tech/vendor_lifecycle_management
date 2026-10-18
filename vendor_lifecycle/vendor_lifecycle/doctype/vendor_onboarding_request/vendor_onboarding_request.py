@@ -21,6 +21,7 @@ from vendor_lifecycle.vendor_lifecycle.vendor_creation import (
 	vendor_lifecycle_manager_emails,
 )
 from vendor_lifecycle.vendor_lifecycle.db_errors import reraise_if_db_lock_error
+from vendor_lifecycle.vendor_lifecycle.permissions import is_internal_user
 
 DEFAULT_ONBOARDING_RECEIVED_EMAIL_TEMPLATE = "Vendor Onboarding Request Received"
 DEFAULT_ONBOARDING_NEW_REQUEST_EMAIL_TEMPLATE = "Vendor Onboarding Request - New Submission"
@@ -178,6 +179,19 @@ class VendorOnboardingRequest(Document):
 			)
 			if not duplicate:
 				continue
+
+			if not is_internal_user():
+				# Public web form: never name another request or which detail
+				# matched - that would let anyone test whether an email, phone
+				# or GSTIN is registered. Warn stays silent; Block says only
+				# that the request can't be accepted.
+				if handling == "Block":
+					frappe.throw(
+						frappe._(
+							"We couldn't accept this request. If you have already applied, please contact us instead."
+						)
+					)
+				return
 
 			message = frappe._("Another Onboarding Request ({0}) already exists with the same {1}.").format(
 				frappe.bold(duplicate), label

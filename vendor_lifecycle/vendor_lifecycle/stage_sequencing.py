@@ -490,6 +490,19 @@ def _later_stage_document(doctype, scope, docstatus):
 	return None
 
 
+def _earlier_stage_draft(doctype, scope):
+	"""(doctype, name) of a draft of a stage before `doctype` in
+	STAGE_SEQUENCE, in this run. An optional stage left as a draft would
+	otherwise be submitted after a later stage - even after Sign Off - and
+	fail an already onboarded vendor."""
+	names = [name for name, _setting in STAGE_SEQUENCE]
+	for earlier_doctype in names[1 : names.index(doctype)]:
+		name = frappe.db.get_value(earlier_doctype, {**_run_filters(earlier_doctype, scope), "docstatus": 0}, "name")
+		if name:
+			return earlier_doctype, name
+	return None
+
+
 def enforce_sequential_creation(doc):
 	"""Call from validate() on any stage doctype after Vendor KYC. Requires
 	the nearest earlier *mandatory* stage to already be submitted (passed,
@@ -552,6 +565,13 @@ def enforce_sequential_creation(doc):
 		frappe.throw(
 			frappe._("{0} {1} already exists for this Vendor KYC — {2} can't be added after it.").format(
 				later[0], frappe.utils.get_link_to_form(later[0], later[1]), doc.doctype
+			)
+		)
+	earlier = _earlier_stage_draft(doc.doctype, {"kyc": doc.kyc})
+	if earlier:
+		frappe.throw(
+			frappe._("Submit or delete the draft {0} {1} before starting {2}.").format(
+				earlier[0], frappe.utils.get_link_to_form(earlier[0], earlier[1]), doc.doctype
 			)
 		)
 
@@ -700,6 +720,8 @@ def get_available_stages(kyc):
 			continue  # already done
 		if _later_stage_document(doctype, {"kyc": kyc}, ["in", [0, 1]]):
 			continue  # a later stage has started — same rule as enforce_sequential_creation
+		if _earlier_stage_draft(doctype, {"kyc": kyc}):
+			continue  # an earlier stage is still a draft — same rule as enforce_sequential_creation
 
 		requirement = nearest_requirement(kyc, STAGE_SEQUENCE[:i], settings)
 		if not requirement or requirement[1]:

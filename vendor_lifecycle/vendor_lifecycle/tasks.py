@@ -260,11 +260,14 @@ def send_deboarding_checklist_followups():
 	cutoff = add_days(nowdate(), -CLEARANCE_FOLLOWUP_DAYS)
 	candidates = frappe.get_all(
 		"Vendor Deboarding Checklist",
-		filters={
-			"docstatus": 0,
-			"last_reminder_sent": ["<=", cutoff],
-			"signed_clearance_certificate": ["in", ["", None]],
-		},
+		filters=[
+			["docstatus", "=", 0],
+			# A blank date would match "<=" (Frappe compares NULL as 0001-01-01) -
+			# never sent yet means nothing to follow up.
+			["last_reminder_sent", "is", "set"],
+			["last_reminder_sent", "<=", cutoff],
+			["signed_clearance_certificate", "in", ["", None]],
+		],
 		pluck="name",
 	)
 
@@ -294,7 +297,13 @@ def send_signoff_followups():
 	cutoff = add_days(nowdate(), -SIGNOFF_FOLLOWUP_DAYS)
 	candidates = frappe.get_all(
 		"Vendor Sign Off",
-		filters={"docstatus": 0, "sign_off_failed": 0, "last_reminder_sent": ["<=", cutoff]},
+		filters=[
+			["docstatus", "=", 0],
+			["sign_off_failed", "=", 0],
+			# Blank = the Sign-off email was never sent; see the checklist job above.
+			["last_reminder_sent", "is", "set"],
+			["last_reminder_sent", "<=", cutoff],
+		],
 		pluck="name",
 	)
 
@@ -353,8 +362,13 @@ def send_compliance_audit_renewal_notices():
 		"Supplier",
 		# Only vendors a Renewal could be created for (see
 		# stage_sequencing.require_active_supplier_for_renewal) — no draft,
-		# email or expiry disable for one deboarded, mid-pipeline or on hold.
-		filters={"compliance_audit_valid_until": ["is", "set"], "vendor_lifecycle_stage": ["in", RENEWABLE_STAGES], "on_hold": 0},
+		# email or expiry disable for one deboarded, mid-pipeline, on hold or frozen.
+		filters={
+			"compliance_audit_valid_until": ["is", "set"],
+			"vendor_lifecycle_stage": ["in", RENEWABLE_STAGES],
+			"on_hold": 0,
+			"is_frozen": 0,
+		},
 		fields=["name", "supplier_name", "compliance_audit_valid_until", "disabled", "vendor_lifecycle_status"],
 	)
 
@@ -513,8 +527,13 @@ def send_signoff_renewal_notices():
 		"Supplier",
 		# Only vendors a Renewal could be created for (see
 		# stage_sequencing.require_active_supplier_for_renewal) — no draft,
-		# email or expiry disable for one deboarded, mid-pipeline or on hold.
-		filters={"contract_valid_until": ["is", "set"], "vendor_lifecycle_stage": ["in", RENEWABLE_STAGES], "on_hold": 0},
+		# email or expiry disable for one deboarded, mid-pipeline, on hold or frozen.
+		filters={
+			"contract_valid_until": ["is", "set"],
+			"vendor_lifecycle_stage": ["in", RENEWABLE_STAGES],
+			"on_hold": 0,
+			"is_frozen": 0,
+		},
 		fields=["name", "supplier_name", "contract_valid_until", "disabled", "vendor_lifecycle_status"],
 	)
 

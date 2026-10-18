@@ -736,12 +736,16 @@ RENEWAL_EXPIRY_SOURCES = {
 def set_renewal_expired(vendor, expired_status):
 	"""Disable an active vendor whose Compliance Audit / contract ran out
 	(expiry job, or a Failed Renewal) and say why in its status. Only for a
-	vendor a Renewal applies to - a deboarded, mid-pipeline or on-hold
-	vendor keeps its own status."""
+	vendor a Renewal applies to - a deboarded, mid-pipeline, on-hold or
+	frozen vendor keeps its own status."""
 	from vendor_lifecycle.vendor_lifecycle.stage_sequencing import RENEWABLE_STAGES
 
-	stage, on_hold = frappe.db.get_value("Supplier", vendor, ["vendor_lifecycle_stage", "on_hold"])
-	if stage not in RENEWABLE_STAGES or on_hold:
+	stage, on_hold, is_frozen = frappe.db.get_value(
+		"Supplier", vendor, ["vendor_lifecycle_stage", "on_hold", "is_frozen"]
+	)
+	# Same rule as require_active_supplier_for_renewal: a Renewal couldn't
+	# bring an on-hold or frozen vendor back, so never expire one.
+	if stage not in RENEWABLE_STAGES or on_hold or is_frozen:
 		return
 	frappe.db.set_value("Supplier", vendor, {"disabled": 1, "vendor_lifecycle_status": expired_status})
 
