@@ -4,7 +4,8 @@ app_publisher = "Auriga IT"
 app_description = "Vendor onboarding and deboarding lifecycle management for Frappe/ERPNext"
 app_email = "rahul.chaudhary@aurigait.com"
 app_license = "mit"
-app_logo_url = "/assets/vendor_lifecycle/icons/desktop_icons/solid/vendor_lifecycle.svg"
+# "?v=" makes browsers fetch the logo again after it changes (assets are cached for a year).
+app_logo_url = "/assets/vendor_lifecycle/icons/desktop_icons/subtle/vendor_lifecycle.svg?v=4"
 app_home = "/desk/vendor-lifecycle"
 
 # Apps

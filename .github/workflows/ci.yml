@@ -75,7 +75,25 @@ jobs:
           check Workflow "Vendor KYC"
           check Workflow "Vendor Reboarding Request"
           check "Email Template" "Vendor Lifecycle Stage Failed"
-      - name: Uninstall
+      - name: Check icon and navigation after install
+        run: |
+          cd ~/frappe-bench/sites
+          ../env/bin/python "$GITHUB_WORKSPACE/vendor_lifecycle/.github/scripts/check_icons.py" "$SITE" installed
+      - name: Uninstall and check nothing is left behind
         run: |
           cd ~/frappe-bench
           bench --site "$SITE" uninstall-app vendor_lifecycle --yes --no-backup
+          cd sites
+          ../env/bin/python "$GITHUB_WORKSPACE/vendor_lifecycle/.github/scripts/check_icons.py" "$SITE" uninstalled
+      - name: Reinstall and check icon again
+        run: |
+          cd ~/frappe-bench
+          bench --site "$SITE" install-app vendor_lifecycle
+          cd sites
+          ../env/bin/python "$GITHUB_WORKSPACE/vendor_lifecycle/.github/scripts/check_icons.py" "$SITE" installed
+      - name: Uninstall again and check nothing is left behind
+        run: |
+          cd ~/frappe-bench
+          bench --site "$SITE" uninstall-app vendor_lifecycle --yes --no-backup
+          cd sites
+          ../env/bin/python "$GITHUB_WORKSPACE/vendor_lifecycle/.github/scripts/check_icons.py" "$SITE" uninstalled
