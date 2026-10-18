@@ -6,9 +6,9 @@ Every vendor goes through the same enforced pipeline — Onboarding Request → 
 
 ## User Manual
 
-[![View User Manual (PDF)](https://img.shields.io/badge/User%20Manual-View%20PDF-0076DB?style=for-the-badge)](https://cdn.jsdelivr.net/gh/anoopverma-collab/Vendor-Lifecycle-Management@main/docs/Vendor_Lifecycle_User_Manual.pdf)
+[![Download User Manual (PDF)](https://img.shields.io/badge/User%20Manual-Download%20PDF-0076DB?style=for-the-badge)](https://github.com/anoopverma-collab/Vendor-Lifecycle-Management/raw/main/docs/Vendor_Lifecycle_User_Manual.pdf)
 
-Step-by-step guide to every screen, setting, dashboard and email — [open the User Manual (PDF)](https://cdn.jsdelivr.net/gh/anoopverma-collab/Vendor-Lifecycle-Management@main/docs/Vendor_Lifecycle_User_Manual.pdf).
+Step-by-step guide to every screen, setting, dashboard and email — [download the User Manual (PDF)](https://github.com/anoopverma-collab/Vendor-Lifecycle-Management/raw/main/docs/Vendor_Lifecycle_User_Manual.pdf).
 
 ## Why this matters
 
