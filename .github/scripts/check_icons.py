@@ -36,6 +36,9 @@ def check(ok, message):
 	print(("OK    " if ok else "FAIL  ") + message)
 	if not ok:
 		errors.append(message)
+		if os.environ.get("GITHUB_ACTIONS"):
+			# Shows on the run's summary page as an annotation.
+			print(f"::error title=check_icons::{message}")
 
 
 def check_installed():

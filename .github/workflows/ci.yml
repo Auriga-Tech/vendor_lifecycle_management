@@ -82,7 +82,8 @@ jobs:
       - name: Uninstall and check nothing is left behind
         run: |
           cd ~/frappe-bench
-          bench --site "$SITE" uninstall-app vendor_lifecycle --yes --no-backup
+          bench --site "$SITE" uninstall-app vendor_lifecycle --yes --no-backup > uninstall.log 2>&1 || { cat uninstall.log; echo "::error title=uninstall::$(tail -5 uninstall.log | tr '\n' ' ')"; exit 1; }
+          cat uninstall.log
           cd sites
           ../env/bin/python "$GITHUB_WORKSPACE/vendor_lifecycle/.github/scripts/check_icons.py" "$SITE" uninstalled
       - name: Reinstall and check icon again
@@ -94,6 +95,7 @@ jobs:
       - name: Uninstall again and check nothing is left behind
         run: |
           cd ~/frappe-bench
-          bench --site "$SITE" uninstall-app vendor_lifecycle --yes --no-backup
+          bench --site "$SITE" uninstall-app vendor_lifecycle --yes --no-backup > uninstall.log 2>&1 || { cat uninstall.log; echo "::error title=uninstall::$(tail -5 uninstall.log | tr '\n' ' ')"; exit 1; }
+          cat uninstall.log
           cd sites
           ../env/bin/python "$GITHUB_WORKSPACE/vendor_lifecycle/.github/scripts/check_icons.py" "$SITE" uninstalled
